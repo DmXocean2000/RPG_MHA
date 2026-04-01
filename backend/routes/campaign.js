@@ -24,6 +24,28 @@ function notFound(message) {
   return { error: "Not Found", message };
 }
 
+function createCompanionStatus(faction) {
+  const byFaction = {
+    hero: [
+      { name: "Midoriya", trust: 74, treatment: "Supportive", status: "Focused and optimistic" },
+      { name: "Iida", trust: 70, treatment: "Formal respect", status: "Coordinating party protocol" },
+      { name: "Aizawa", trust: 62, treatment: "Pragmatic tolerance", status: "Watching for threats" },
+    ],
+    villain: [
+      { name: "Midoriya", trust: 46, treatment: "Wary but fair", status: "Trying to understand your intent" },
+      { name: "Iida", trust: 38, treatment: "Strictly guarded", status: "Monitoring for rule violations" },
+      { name: "Aizawa", trust: 42, treatment: "Cold and cautious", status: "Prepared to intervene instantly" },
+    ],
+    civilian: [
+      { name: "Midoriya", trust: 72, treatment: "Encouraging", status: "Prioritizing your safety" },
+      { name: "Iida", trust: 67, treatment: "Protective and orderly", status: "Assigning safe roles" },
+      { name: "Aizawa", trust: 58, treatment: "Protective but blunt", status: "Keeping the route secure" },
+    ],
+  };
+
+  return byFaction[faction] || byFaction.hero;
+}
+
 function createCampaignRouter({ characters, games, turnHistoryByGame }) {
   const router = express.Router();
 
@@ -66,6 +88,7 @@ function createCampaignRouter({ characters, games, turnHistoryByGame }) {
       location: "beach",
       coconuts: 0,
       storyFlags: {},
+      companionStatus: createCompanionStatus(character.faction),
     };
 
     const openingResponse = createOpeningResponse({

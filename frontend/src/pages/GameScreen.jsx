@@ -128,6 +128,18 @@ function buildFallbackOpeningResponse(gameState) {
   };
 }
 
+function trustLabel(value) {
+  if (value >= 75) return "High";
+  if (value >= 50) return "Medium";
+  return "Low";
+}
+
+function trustBarClass(value) {
+  if (value >= 75) return "bg-emerald-500";
+  if (value >= 50) return "bg-amber-500";
+  return "bg-rose-500";
+}
+
 export default function GameScreenPage() {
   const { gameId } = useParams();
   const location = useLocation();
@@ -173,6 +185,7 @@ export default function GameScreenPage() {
   }, [messages]);
 
   const inventory = useMemo(() => gameState?.player?.inventory || [], [gameState?.player?.inventory]);
+  const companionStatus = useMemo(() => gameState?.companionStatus || [], [gameState?.companionStatus]);
 
   async function submitAction(actionText) {
     const action = actionText.trim();
@@ -211,7 +224,7 @@ export default function GameScreenPage() {
         onClick={() => setIsSidebarOpen((v) => !v)}
         className="fixed right-3 top-24 z-40 rounded-lg border border-indigo-400/40 bg-gray-900/95 px-3 py-2 text-xs font-semibold text-indigo-200 shadow-glow backdrop-blur transition hover:border-indigo-300 hover:bg-gray-800"
       >
-        {isSidebarOpen ? "Hide Inventory" : "Show Inventory"}
+        {isSidebarOpen ? "Hide Panels" : "Show Panels"}
       </button>
 
       <section className={`flex min-h-0 flex-1 ${isSidebarOpen ? "lg:pr-80" : ""}`}>
@@ -295,20 +308,48 @@ export default function GameScreenPage() {
       </section>
 
       {isSidebarOpen && (
-        <aside className="fixed right-3 top-36 z-40 w-72 max-h-[calc(100vh-10rem)] overflow-y-auto rounded-xl border border-gray-700 bg-panelLight/95 p-4 shadow-glow backdrop-blur">
-          <h3 className="mb-2 text-sm font-semibold text-indigo-300">Inventory</h3>
-          {inventory.length === 0 ? (
-            <p className="text-sm text-gray-300">No items yet.</p>
-          ) : (
-            <ul className="space-y-2 text-sm text-gray-200">
-              {inventory.map((item, index) => (
-                <li key={`${item}-${index}`} className="rounded border border-gray-700 bg-gray-800 px-2 py-1">
-                  {item}
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
+        <div className="fixed right-3 top-36 z-40 flex w-72 flex-col gap-3">
+          <aside className="max-h-[36vh] overflow-y-auto rounded-xl border border-gray-700 bg-panelLight/95 p-4 shadow-glow backdrop-blur">
+            <h3 className="mb-2 text-sm font-semibold text-indigo-300">Inventory</h3>
+            {inventory.length === 0 ? (
+              <p className="text-sm text-gray-300">No items yet.</p>
+            ) : (
+              <ul className="space-y-2 text-sm text-gray-200">
+                {inventory.map((item, index) => (
+                  <li key={`${item}-${index}`} className="rounded border border-gray-700 bg-gray-800 px-2 py-1">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+
+          <aside className="max-h-[42vh] overflow-y-auto rounded-xl border border-gray-700 bg-panelLight/95 p-4 shadow-glow backdrop-blur">
+            <h3 className="mb-2 text-sm font-semibold text-indigo-300">Companions</h3>
+            {companionStatus.length === 0 ? (
+              <p className="text-sm text-gray-300">No companion data yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {companionStatus.map((companion) => (
+                  <article key={companion.name} className="rounded-lg border border-gray-700 bg-gray-800/80 p-3">
+                    <p className="text-sm font-semibold text-gray-100">{companion.name}</p>
+                    <p className="mt-1 text-xs text-gray-300">Status: {companion.status}</p>
+                    <p className="text-xs text-gray-300">Treatment: {companion.treatment}</p>
+                    <p className="mt-1 text-xs text-gray-300">
+                      Trust: {companion.trust}/100 ({trustLabel(companion.trust)})
+                    </p>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded bg-gray-700">
+                      <div
+                        className={`h-full ${trustBarClass(companion.trust)}`}
+                        style={{ width: `${Math.max(0, Math.min(100, companion.trust || 0))}%` }}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </aside>
+        </div>
       )}
     </main>
   );
