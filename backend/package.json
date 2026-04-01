@@ -1,0 +1,17 @@
+{
+  "name": "rpg-mha-backend",
+  "version": "1.0.0",
+  "description": "Text-based RPG backend API",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "echo \"No tests configured\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0"
+  }
+}
