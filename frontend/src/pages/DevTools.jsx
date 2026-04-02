@@ -6,7 +6,34 @@ function parseInventory(text) {
   return text
     .split(/\r?\n|,/)
     .map((v) => v.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((entry) => {
+      const leadingCount = entry.match(/^(\d+)\s+(.+)$/);
+      const trailingCount = entry.match(/^(.+?)\s*x\s*(\d+)$/i);
+      if (leadingCount) {
+        return { name: leadingCount[2].trim().toLowerCase(), quantity: Number(leadingCount[1]) };
+      }
+      if (trailingCount) {
+        return { name: trailingCount[1].trim().toLowerCase(), quantity: Number(trailingCount[2]) };
+      }
+      return { name: entry.trim().toLowerCase(), quantity: 1 };
+    })
+    .filter((entry) => entry.name && Number.isFinite(entry.quantity) && entry.quantity > 0);
+}
+
+function inventoryToText(inventoryList) {
+  if (!Array.isArray(inventoryList)) return "";
+  return inventoryList
+    .map((entry) => {
+      if (typeof entry === "string") return entry;
+      const name = String(entry?.name || "").trim();
+      const quantity = Number(entry?.quantity);
+      if (!name) return "";
+      if (!Number.isFinite(quantity) || quantity <= 1) return name;
+      return `${quantity} ${name}`;
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 export default function DevToolsPage() {
@@ -66,7 +93,7 @@ export default function DevToolsPage() {
       setLoading(true);
       const { data } = await api.post(`/api/dev/game/${gameId.trim()}`, { password });
       setGameState(data.gameState);
-      setInventoryText((data.gameState?.player?.inventory || []).join("\n"));
+      setInventoryText(inventoryToText(data.gameState?.player?.inventory || []));
       setCoconutsInput(String(data.gameState?.coconuts ?? 0));
       localStorage.setItem("rpg_gameId", gameId.trim());
     } catch (requestError) {
@@ -95,7 +122,7 @@ export default function DevToolsPage() {
       });
       setGameId(data.gameId);
       setGameState(data.gameState);
-      setInventoryText((data.gameState?.player?.inventory || []).join("\n"));
+      setInventoryText(inventoryToText(data.gameState?.player?.inventory || []));
       setCoconutsInput(String(data.gameState?.coconuts ?? 0));
       localStorage.setItem("rpg_gameId", data.gameId);
     } catch (requestError) {

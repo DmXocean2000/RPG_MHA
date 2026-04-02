@@ -64,6 +64,28 @@ function normalizeCompanions(list) {
     });
 }
 
+function normalizeInventoryList(list) {
+  if (!Array.isArray(list)) return [];
+  const aggregate = new Map();
+  for (const entry of list) {
+    if (typeof entry === "string") {
+      const name = entry.trim().toLowerCase();
+      if (!name) continue;
+      aggregate.set(name, (aggregate.get(name) || 0) + 1);
+      continue;
+    }
+    if (entry && typeof entry === "object") {
+      const name = String(entry.name || "").trim().toLowerCase();
+      const quantity = Number(entry.quantity);
+      if (!name || !Number.isFinite(quantity) || quantity <= 0) continue;
+      aggregate.set(name, (aggregate.get(name) || 0) + quantity);
+    }
+  }
+  return Array.from(aggregate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, quantity]) => ({ name, quantity }));
+}
+
 function asMessageList(response, dmSpeaker = "dm") {
   const safeResponse = response && typeof response === "object" ? response : {};
   const dmNarration =
@@ -115,6 +137,73 @@ function asMessageList(response, dmSpeaker = "dm") {
         : `Energy ${trend}: ${amount}. Effort: ${effort}.${reason ? ` ${reason}` : ""}`,
       kind: "system",
       tone: appliedDelta < 0 ? "failure" : appliedDelta > 0 ? "success" : "neutral",
+    });
+  }
+
+  if (Array.isArray(safeResponse.health_changes) && safeResponse.health_changes.length > 0) {
+    safeResponse.health_changes.forEach((change) => {
+      const target = String(change?.target || "").toLowerCase();
+      const who = target === "player" ? "You" : toDisplayName(change?.name || "Companion");
+      const delta = Number(change?.delta);
+      if (!Number.isFinite(delta) || delta === 0) return;
+      const before = Number(change?.before);
+      const after = Number(change?.after);
+      const reason = typeof change?.reason === "string" ? change.reason : "";
+      const direction = delta < 0 ? "lost" : "recovered";
+      const amount = Math.abs(delta);
+      const rangeText = Number.isFinite(before) && Number.isFinite(after) ? ` (${before} -> ${after})` : "";
+
+      list.push({
+        speaker: "system",
+        name: "Health",
+        text: `${who} ${direction} ${amount} HP${rangeText}.${reason ? ` ${reason}` : ""}`,
+        kind: "system",
+        tone: delta < 0 ? "failure" : "success",
+      });
+    });
+  }
+
+  if (Array.isArray(safeResponse.companion_energy_changes) && safeResponse.companion_energy_changes.length > 0) {
+    safeResponse.companion_energy_changes.forEach((change) => {
+      const name = toDisplayName(change?.name || "Companion");
+      const delta = Number(change?.delta);
+      if (!Number.isFinite(delta) || delta === 0) return;
+      const before = Number(change?.before);
+      const after = Number(change?.after);
+      const reason = typeof change?.reason === "string" ? change.reason : "";
+      const direction = delta < 0 ? "spent" : "recovered";
+      const amount = Math.abs(delta);
+      const rangeText = Number.isFinite(before) && Number.isFinite(after) ? ` (${before} -> ${after})` : "";
+
+      list.push({
+        speaker: "system",
+        name: "Companion Energy",
+        text: `${name} ${direction} ${amount} energy${rangeText}.${reason ? ` ${reason}` : ""}`,
+        kind: "system",
+        tone: delta < 0 ? "failure" : "success",
+      });
+    });
+  }
+
+  if (Array.isArray(safeResponse.item_changes) && safeResponse.item_changes.length > 0) {
+    safeResponse.item_changes.forEach((change) => {
+      const name = String(change?.name || "").trim() || "item";
+      const delta = Number(change?.delta);
+      if (!Number.isFinite(delta) || delta === 0) return;
+      const before = Number(change?.before);
+      const after = Number(change?.after);
+      const reason = typeof change?.reason === "string" ? change.reason : "";
+      const direction = delta > 0 ? "gained" : "used";
+      const amount = Math.abs(delta);
+      const amountText = `${amount} ${name}`;
+      const rangeText = Number.isFinite(before) && Number.isFinite(after) ? ` (${before} -> ${after})` : "";
+      list.push({
+        speaker: "system",
+        name: "Items",
+        text: `${direction === "gained" ? "Gained" : "Used"} ${amountText}${rangeText}.${reason ? ` ${reason}` : ""}`,
+        kind: "system",
+        tone: delta > 0 ? "success" : "failure",
+      });
     });
   }
 
@@ -213,7 +302,10 @@ export default function GameScreenPage() {
     }
   }, [messages]);
 
-  const inventory = useMemo(() => gameState?.player?.inventory || [], [gameState?.player?.inventory]);
+  const inventory = useMemo(
+    () => normalizeInventoryList(gameState?.player?.inventory || []),
+    [gameState?.player?.inventory]
+  );
   const companionStatus = useMemo(() => gameState?.companionStatus || [], [gameState?.companionStatus]);
 
   async function submitAction(actionText) {
@@ -362,8 +454,8 @@ export default function GameScreenPage() {
             ) : (
               <ul className="space-y-2 text-sm text-gray-200">
                 {inventory.map((item, index) => (
-                  <li key={`${item}-${index}`} className="rounded border border-gray-700 bg-gray-800 px-2 py-1">
-                    {item}
+                  <li key={`${item.name}-${index}`} className="rounded border border-gray-700 bg-gray-800 px-2 py-1">
+                    {item.quantity}x {toDisplayName(item.name)}
                   </li>
                 ))}
               </ul>

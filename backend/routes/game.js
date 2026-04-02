@@ -30,6 +30,12 @@ function ensureCompanionVitals(gameState) {
   }));
 }
 
+function ensurePlayerVitals(gameState) {
+  if (!gameState?.player || typeof gameState.player !== "object") return;
+  gameState.player.hp = clamp0to20(gameState.player.hp, 20);
+  gameState.player.energy = clamp0to20(gameState.player.energy, 20);
+}
+
 function applyTrustChangesFromModel(gameState, trustChanges) {
   if (!Array.isArray(gameState?.companionStatus) || !Array.isArray(trustChanges)) return [];
 
@@ -56,6 +62,150 @@ function applyTrustChangesFromModel(gameState, trustChanges) {
     };
   });
 
+  return applied;
+}
+
+function applyHealthChangesFromModel(gameState, healthChanges) {
+  const parsedChanges = Array.isArray(healthChanges) ? healthChanges : [];
+  const applied = [];
+
+  for (const change of parsedChanges) {
+    const target = String(change?.target || "").toLowerCase().trim();
+    const delta = Number(change?.delta);
+    if (!Number.isFinite(delta) || delta === 0) continue;
+    const reason = typeof change?.reason === "string" ? change.reason : "";
+
+    if (target === "player" && gameState?.player) {
+      const before = clamp0to20(gameState.player.hp, 20);
+      const after = clamp0to20(before + delta, 20);
+      gameState.player.hp = after;
+      applied.push({
+        target: "player",
+        name: gameState.player?.name || "Player",
+        delta: after - before,
+        requestedDelta: delta,
+        before,
+        after,
+        reason,
+      });
+      continue;
+    }
+
+    if (target === "companion" && Array.isArray(gameState?.companionStatus)) {
+      const targetKey = normalizeKey(change?.name);
+      if (!targetKey) continue;
+      const idx = gameState.companionStatus.findIndex((entry) => normalizeKey(entry?.name) === targetKey);
+      if (idx < 0) continue;
+
+      const companion = gameState.companionStatus[idx];
+      const before = clamp0to20(companion?.hp, 20);
+      const after = clamp0to20(before + delta, 20);
+      gameState.companionStatus[idx] = { ...companion, hp: after };
+      applied.push({
+        target: "companion",
+        name: companion?.name || "Companion",
+        delta: after - before,
+        requestedDelta: delta,
+        before,
+        after,
+        reason,
+      });
+    }
+  }
+
+  return applied;
+}
+
+function applyCompanionEnergyChangesFromModel(gameState, companionEnergyChanges) {
+  const parsedChanges = Array.isArray(companionEnergyChanges) ? companionEnergyChanges : [];
+  if (!Array.isArray(gameState?.companionStatus)) return [];
+  const applied = [];
+
+  for (const change of parsedChanges) {
+    const targetKey = normalizeKey(change?.name);
+    const delta = Number(change?.delta);
+    if (!targetKey || !Number.isFinite(delta) || delta === 0) continue;
+    const idx = gameState.companionStatus.findIndex((entry) => normalizeKey(entry?.name) === targetKey);
+    if (idx < 0) continue;
+
+    const companion = gameState.companionStatus[idx];
+    const before = clamp0to20(companion?.energy, 20);
+    const after = clamp0to20(before + delta, 20);
+    gameState.companionStatus[idx] = { ...companion, energy: after };
+    applied.push({
+      name: companion?.name || "Companion",
+      delta: after - before,
+      requestedDelta: delta,
+      before,
+      after,
+      reason: typeof change?.reason === "string" ? change.reason : "",
+    });
+  }
+
+  return applied;
+}
+
+function normalizeItemName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeInventoryToMap(inventory) {
+  const map = new Map();
+  if (!Array.isArray(inventory)) return map;
+
+  for (const entry of inventory) {
+    if (typeof entry === "string") {
+      const key = normalizeItemName(entry);
+      if (!key) continue;
+      map.set(key, (map.get(key) || 0) + 1);
+      continue;
+    }
+    if (entry && typeof entry === "object") {
+      const key = normalizeItemName(entry.name);
+      const quantity = Number(entry.quantity);
+      if (!key || !Number.isFinite(quantity) || quantity <= 0) continue;
+      map.set(key, (map.get(key) || 0) + quantity);
+    }
+  }
+
+  return map;
+}
+
+function inventoryMapToArray(inventoryMap) {
+  return Array.from(inventoryMap.entries())
+    .filter(([, quantity]) => Number.isFinite(quantity) && quantity > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, quantity]) => ({ name, quantity }));
+}
+
+function applyItemChangesFromModel(gameState, itemChanges) {
+  if (!gameState?.player || typeof gameState.player !== "object") return [];
+  const parsedChanges = Array.isArray(itemChanges) ? itemChanges : [];
+  const inventoryMap = normalizeInventoryToMap(gameState.player.inventory);
+  const applied = [];
+
+  for (const change of parsedChanges) {
+    const name = normalizeItemName(change?.name);
+    const delta = Number(change?.delta);
+    if (!name || !Number.isFinite(delta) || delta === 0) continue;
+
+    const before = inventoryMap.get(name) || 0;
+    const after = Math.max(0, before + delta);
+    inventoryMap.set(name, after);
+    applied.push({
+      name,
+      delta: after - before,
+      requestedDelta: delta,
+      before,
+      after,
+      reason: typeof change?.reason === "string" ? change.reason : "",
+    });
+  }
+
+  gameState.player.inventory = inventoryMapToArray(inventoryMap);
   return applied;
 }
 
@@ -129,6 +279,7 @@ function createGameRouter({ games, turnHistoryByGame }) {
     if (!gameState) {
       return res.status(404).json(notFound("Game not found"));
     }
+    ensurePlayerVitals(gameState);
     ensureCompanionVitals(gameState);
 
     const turnHistory = turnHistoryByGame.get(gameId) ?? [];
@@ -144,6 +295,7 @@ function createGameRouter({ games, turnHistoryByGame }) {
       if (!gameState) {
         return res.status(404).json(notFound("Game not found"));
       }
+      ensurePlayerVitals(gameState);
       ensureCompanionVitals(gameState);
 
       if (typeof action !== "string" || !action.trim()) {
@@ -158,7 +310,16 @@ function createGameRouter({ games, turnHistoryByGame }) {
         ...(response?.energy_change || {}),
         dice_roll: response?.dice_roll,
       });
+      const healthChanges = applyHealthChangesFromModel(gameState, response?.health_changes || []);
+      const companionEnergyChanges = applyCompanionEnergyChangesFromModel(
+        gameState,
+        response?.companion_energy_changes || []
+      );
+      const itemChanges = applyItemChangesFromModel(gameState, response?.item_changes || []);
       response.energy_change = energyChange;
+      response.health_changes = healthChanges;
+      response.companion_energy_changes = companionEnergyChanges;
+      response.item_changes = itemChanges;
       const trustChanges = applyTrustChangesFromModel(gameState, response?.trust_changes || []);
 
       const history = turnHistoryByGame.get(gameId) ?? [];
@@ -170,6 +331,9 @@ function createGameRouter({ games, turnHistoryByGame }) {
         meta: {
           ...(meta || {}),
           energyChange,
+          healthChanges,
+          companionEnergyChanges,
+          itemChanges,
           trustChanges,
         },
         timestamp: new Date().toISOString(),
@@ -179,7 +343,9 @@ function createGameRouter({ games, turnHistoryByGame }) {
       console.log(
         `[game:turn] gameId=${gameId} action="${action.trim()}" source=${source} energyChange=${JSON.stringify(
           energyChange
-        )} trustChanges=${JSON.stringify(trustChanges)}`
+        )} healthChanges=${JSON.stringify(healthChanges)} companionEnergyChanges=${JSON.stringify(
+          companionEnergyChanges
+        )} itemChanges=${JSON.stringify(itemChanges)} trustChanges=${JSON.stringify(trustChanges)}`
       );
       return res.status(200).json({
         response,
@@ -187,6 +353,9 @@ function createGameRouter({ games, turnHistoryByGame }) {
         meta: {
           ...(meta || {}),
           energyChange,
+          healthChanges,
+          companionEnergyChanges,
+          itemChanges,
           trustChanges,
         },
       });

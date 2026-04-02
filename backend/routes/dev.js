@@ -52,9 +52,39 @@ function requireDevPassword(req, res, next) {
 
 function normalizeInventory(value) {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
+  const aggregate = new Map();
+
+  for (const item of value) {
+    if (typeof item === "string") {
+      const raw = item.trim().toLowerCase();
+      if (!raw) continue;
+      const leadingCount = raw.match(/^(\d+)\s+(.+)$/);
+      const trailingCount = raw.match(/^(.+?)\s*x\s*(\d+)$/i);
+      let name = raw;
+      let quantity = 1;
+      if (leadingCount) {
+        quantity = Number(leadingCount[1]);
+        name = leadingCount[2].trim();
+      } else if (trailingCount) {
+        name = trailingCount[1].trim();
+        quantity = Number(trailingCount[2]);
+      }
+      if (!name || !Number.isFinite(quantity) || quantity <= 0) continue;
+      aggregate.set(name, (aggregate.get(name) || 0) + quantity);
+      continue;
+    }
+
+    if (item && typeof item === "object") {
+      const name = typeof item.name === "string" ? item.name.trim().toLowerCase() : "";
+      const quantity = Number(item.quantity);
+      if (!name || !Number.isFinite(quantity) || quantity <= 0) continue;
+      aggregate.set(name, (aggregate.get(name) || 0) + quantity);
+    }
+  }
+
+  return Array.from(aggregate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, quantity]) => ({ name, quantity }));
 }
 
 function generateId(prefix) {

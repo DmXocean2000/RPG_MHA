@@ -17,6 +17,9 @@ const mockTurnResponse = {
     effort: "medium",
     reason: "Scavenging and movement required moderate stamina.",
   },
+  health_changes: [],
+  companion_energy_changes: [],
+  item_changes: [{ name: "wood", delta: 3, reason: "You collected driftwood from the beach." }],
   companions_post: [
     { name: "companion1", text: "Post reaction 1" },
     { name: "companion2", text: "Post reaction 2" },
@@ -26,13 +29,85 @@ const mockTurnResponse = {
 
 function extractFirstJsonObject(rawText) {
   if (typeof rawText !== "string") return { parsed: null, parseError: "content_not_string" };
-  const start = rawText.indexOf("{");
-  const end = rawText.lastIndexOf("}");
-  if (start < 0 || end < 0 || end <= start) return { parsed: null, parseError: "json_braces_not_found" };
-  const possibleJson = rawText.slice(start, end + 1);
+  const candidates = [];
+  const text = rawText.trim();
+  const scoreCandidate = (obj) => {
+    if (!obj || typeof obj !== "object") return 0;
+    const nested = obj.response && typeof obj.response === "object" ? obj.response : {};
+    const merged = { ...obj, ...nested };
+    let score = 0;
+    if (typeof merged.dm_narration === "string" || typeof merged.dmNarration === "string") score += 3;
+    if (Array.isArray(merged.companions_pre) || Array.isArray(merged.companionsPre)) score += 2;
+    if (Array.isArray(merged.companions_post) || Array.isArray(merged.companionsPost)) score += 2;
+    if (Array.isArray(merged.trust_changes) || Array.isArray(merged.trustChanges)) score += 1;
+    if (
+      (merged.energy_change && typeof merged.energy_change === "object") ||
+      (merged.energyChange && typeof merged.energyChange === "object")
+    ) {
+      score += 1;
+    }
+    if (Array.isArray(merged.item_changes) || Array.isArray(merged.itemChanges)) score += 1;
+    if (Object.prototype.hasOwnProperty.call(merged, "dice_roll") || Object.prototype.hasOwnProperty.call(merged, "diceRoll")) {
+      score += 1;
+    }
+    if (merged.response && typeof merged.response === "object") score += 1;
+    return score;
+  };
 
+  // Robust parse path: scan for balanced JSON objects and try each candidate.
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== "{") continue;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let j = i; j < text.length; j += 1) {
+      const ch = text[j];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === "\\") {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === "{") depth += 1;
+      if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          const chunk = text.slice(i, j + 1);
+          try {
+            const parsed = JSON.parse(chunk);
+            candidates.push({ parsed, score: scoreCandidate(parsed), length: chunk.length, start: i });
+          } catch {
+            // Ignore invalid chunk and continue scanning for later valid JSON.
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => b.score - a.score || b.length - a.length || b.start - a.start);
+    return { parsed: candidates[0].parsed, parseError: null };
+  }
+
+  // Legacy fallback for odd payloads that still contain one parseable object.
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end < 0 || end <= start) return { parsed: null, parseError: "json_braces_not_found" };
   try {
-    return { parsed: JSON.parse(possibleJson), parseError: null };
+    return { parsed: JSON.parse(text.slice(start, end + 1)), parseError: null };
   } catch (error) {
     return { parsed: null, parseError: `json_parse_error:${error?.message || "unknown"}` };
   }
@@ -70,6 +145,47 @@ function normalizeTrustChanges(list) {
     .filter((entry) => entry.name && entry.delta !== 0);
 }
 
+function normalizeItemChanges(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => {
+      const name = typeof entry.name === "string" ? entry.name.trim().toLowerCase() : "";
+      const delta = toFiniteNumber(entry.delta);
+      const reason = typeof entry.reason === "string" ? entry.reason.trim() : "";
+      return { name, delta: delta ?? 0, reason };
+    })
+    .filter((entry) => entry.name && entry.delta !== 0);
+}
+
+function normalizeHealthChanges(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => {
+      const targetRaw = typeof entry.target === "string" ? entry.target.trim().toLowerCase() : "";
+      const target = targetRaw === "player" || targetRaw === "companion" ? targetRaw : "player";
+      const name = typeof entry.name === "string" ? entry.name.trim() : "";
+      const delta = toFiniteNumber(entry.delta);
+      const reason = typeof entry.reason === "string" ? entry.reason.trim() : "";
+      return { target, name, delta: delta ?? 0, reason };
+    })
+    .filter((entry) => entry.delta !== 0 && (entry.target === "player" || entry.name));
+}
+
+function normalizeCompanionEnergyChanges(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => {
+      const name = typeof entry.name === "string" ? entry.name.trim() : "";
+      const delta = toFiniteNumber(entry.delta);
+      const reason = typeof entry.reason === "string" ? entry.reason.trim() : "";
+      return { name, delta: delta ?? 0, reason };
+    })
+    .filter((entry) => entry.name && entry.delta !== 0);
+}
+
 function normalizeEnergyChange(value) {
   if (!value || typeof value !== "object") {
     return {
@@ -87,34 +203,44 @@ function normalizeEnergyChange(value) {
   return {
     delta: delta ?? 0,
     effort,
-    reason,
+    reason: reason || "No significant energy change.",
   };
 }
 
 function normalizeTurnResponse(candidate, rawContent) {
   const errors = [];
-  const data = candidate && typeof candidate === "object" ? candidate : {};
+  const base = candidate && typeof candidate === "object" ? candidate : {};
+  const nested = base.response && typeof base.response === "object" ? base.response : {};
+  const data = { ...base, ...nested };
   const contentText = typeof rawContent === "string" ? rawContent.trim() : "";
 
   const narration =
     typeof data.dm_narration === "string" && data.dm_narration.trim()
       ? data.dm_narration.trim()
+      : typeof data.dmNarration === "string" && data.dmNarration.trim()
+      ? data.dmNarration.trim()
       : contentText || "The DM pauses, waiting for your next move.";
 
-  if (!(typeof data.dm_narration === "string" && data.dm_narration.trim())) {
+  if (!((typeof data.dm_narration === "string" && data.dm_narration.trim()) || (typeof data.dmNarration === "string" && data.dmNarration.trim()))) {
     errors.push("dm_narration_missing_or_empty");
   }
 
-  const companionsPre = normalizeCompanionArray(data.companions_pre);
-  const companionsPost = normalizeCompanionArray(data.companions_post);
-  const trustChanges = normalizeTrustChanges(data.trust_changes);
-  const energyChange = normalizeEnergyChange(data.energy_change);
+  const companionsPre = normalizeCompanionArray(data.companions_pre || data.companionsPre);
+  const companionsPost = normalizeCompanionArray(data.companions_post || data.companionsPost);
+  const trustChanges = normalizeTrustChanges(data.trust_changes || data.trustChanges);
+  const healthChanges = normalizeHealthChanges(data.health_changes || data.healthChanges);
+  const companionEnergyChanges = normalizeCompanionEnergyChanges(
+    data.companion_energy_changes || data.companionEnergyChanges
+  );
+  const itemChanges = normalizeItemChanges(data.item_changes || data.itemChanges);
+  const energyChange = normalizeEnergyChange(data.energy_change || data.energyChange);
 
-  let diceRoll;
-  if (data.dice_roll && typeof data.dice_roll === "object") {
-    const type = typeof data.dice_roll.type === "string" && data.dice_roll.type.trim() ? data.dice_roll.type : "check";
-    const dc = toFiniteNumber(data.dice_roll.dc);
-    const result = toFiniteNumber(data.dice_roll.result);
+  let diceRoll = null;
+  const diceCandidate = data.dice_roll && typeof data.dice_roll === "object" ? data.dice_roll : data.diceRoll;
+  if (diceCandidate && typeof diceCandidate === "object") {
+    const type = typeof diceCandidate.type === "string" && diceCandidate.type.trim() ? diceCandidate.type : "check";
+    const dc = toFiniteNumber(diceCandidate.dc);
+    const result = toFiniteNumber(diceCandidate.result);
 
     if (dc !== null && result !== null) {
       diceRoll = { type, dc, result };
@@ -127,10 +253,13 @@ function normalizeTurnResponse(candidate, rawContent) {
     dm_narration: narration,
     companions_pre: companionsPre,
     companions_post: companionsPost,
+    dice_roll: diceRoll,
     trust_changes: trustChanges,
+    health_changes: healthChanges,
+    companion_energy_changes: companionEnergyChanges,
+    item_changes: itemChanges,
     energy_change: energyChange,
   };
-  if (diceRoll) normalized.dice_roll = diceRoll;
 
   return { normalized, errors };
 }
@@ -233,12 +362,22 @@ async function generateTurnResponse({ gameState, action }) {
   const playerQuirk = String(gameState?.player?.quirk || "quirkless");
   const currentEnergy = Number.isFinite(Number(gameState?.player?.energy)) ? Number(gameState.player.energy) : 20;
   const userPrompt = [
-    "Return ONLY JSON with these keys:",
-    "dm_narration, companions_pre, companions_post, OPTIONAL dice_roll, OPTIONAL trust_changes, OPTIONAL energy_change.",
-    "Only include dice_roll when a roll is actually required for the action.",
-    "If included, dice_roll must be: { type: string, dc: number, result: number }.",
+    "Return ONLY JSON. Always include ALL keys exactly in this schema (never omit keys):",
+    "{ dm_narration: string, companions_pre: [{name,text}], companions_post: [{name,text}], dice_roll: { type, dc, result } | null, trust_changes: [{ name, delta, reason }], health_changes: [{ target: 'player'|'companion', name?: string, delta: number, reason: string }], companion_energy_changes: [{ name: string, delta: number, reason: string }], energy_change: { delta: number, effort: 'low'|'medium'|'high', reason: string }, item_changes: [{ name, delta, reason }] }",
+    "If no roll is needed, set dice_roll to null.",
+    "If no trust/health/item changes, return empty arrays for those fields.",
+    "If companions do meaningful work (scouting, combat, gathering, carrying), include companion_energy_changes with signed deltas per companion.",
+    "If no energy change, return energy_change with delta 0, effort 'low', and clear reason.",
+    "If dice_roll is used, it must be: { type: string, dc: number, result: number }.",
     "Use companion entries shaped as: { name: string, text: string }.",
     "trust_changes format: [{ name: string, delta: number, reason: string }].",
+    "health_changes format: [{ target: 'player'|'companion', name?: string, delta: number, reason: string }].",
+    "For companion health changes, include companion name.",
+    "companion_energy_changes format: [{ name: string, delta: number, reason: string }].",
+    "Use negative deltas for fatigue/spending effort, positive deltas for recovery.",
+    "item_changes format: [{ name: string, delta: number, reason: string }].",
+    "Use positive item delta for gains (example: +3 wood) and negative for usage/loss (example: -3 wood).",
+    "Only include item_changes when item quantities actually change this turn.",
     "delta should be small (usually between -10 and +10).",
     "Only include trust_changes for companions whose trust should change this turn.",
     "energy_change format: { delta: number, effort: 'low'|'medium'|'high', reason: string }.",
@@ -246,6 +385,8 @@ async function generateTurnResponse({ gameState, action }) {
     "Use positive delta only for meaningful recovery actions (for example resting).",
     "For actions with physical effort, include energy_change and give a concrete reason.",
     "When dice_roll is present, still provide base energy_change; the server may adjust final cost by roll outcome.",
+    "For injuries or healing, include health_changes with signed deltas.",
+    "When the action crafts/uses resources (like fire-making), include the item usage in item_changes.",
     "Companion trust behavior rules (must follow):",
     "- 80-100: supportive -> helpful, cooperative, and more willing to follow player direction.",
     "- 40-79: neutral -> steady, practical, neither strongly supportive nor hostile.",
@@ -323,6 +464,12 @@ async function generateTurnResponse({ gameState, action }) {
           dm_narration: content.trim(),
           companions_pre: [],
           companions_post: [],
+          dice_roll: null,
+          trust_changes: [],
+          health_changes: [],
+          companion_energy_changes: [],
+          energy_change: { delta: 0, effort: "low", reason: "No significant energy change." },
+          item_changes: [],
         },
         source: "grok_text_fallback",
         meta: buildMeta("grok_text_fallback", {
