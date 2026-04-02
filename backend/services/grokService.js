@@ -31,6 +31,39 @@ function extractFirstJsonObject(rawText) {
   if (typeof rawText !== "string") return { parsed: null, parseError: "content_not_string" };
   const candidates = [];
   const text = rawText.trim();
+  const tryParseJson = (jsonText) => {
+    try {
+      return JSON.parse(jsonText);
+    } catch {
+      return null;
+    }
+  };
+  const attemptCommonJsonRepairs = (jsonText) => {
+    const variants = new Set();
+    variants.add(jsonText);
+
+    // Common malformed pattern from model output:
+    // {"name":"X","text":"..."]  -> missing closing object brace before ].
+    variants.add(
+      jsonText.replace(/("text"\s*:\s*"(?:(?:\\.)|[^"\\])*")\s*(\])/g, "$1}$2")
+    );
+
+    // Remove trailing commas before object/array close.
+    variants.add(jsonText.replace(/,\s*([}\]])/g, "$1"));
+
+    // Combined pass.
+    variants.add(
+      jsonText
+        .replace(/("text"\s*:\s*"(?:(?:\\.)|[^"\\])*")\s*(\])/g, "$1}$2")
+        .replace(/,\s*([}\]])/g, "$1")
+    );
+
+    for (const variant of variants) {
+      const parsed = tryParseJson(variant);
+      if (parsed) return parsed;
+    }
+    return null;
+  };
   const scoreCandidate = (obj) => {
     if (!obj || typeof obj !== "object") return 0;
     const nested = obj.response && typeof obj.response === "object" ? obj.response : {};
@@ -106,8 +139,15 @@ function extractFirstJsonObject(rawText) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end < 0 || end <= start) return { parsed: null, parseError: "json_braces_not_found" };
+  const sliced = text.slice(start, end + 1);
+  const direct = tryParseJson(sliced);
+  if (direct) return { parsed: direct, parseError: null };
+
+  const repaired = attemptCommonJsonRepairs(sliced);
+  if (repaired) return { parsed: repaired, parseError: "json_repaired_common_pattern" };
+
   try {
-    return { parsed: JSON.parse(text.slice(start, end + 1)), parseError: null };
+    return { parsed: JSON.parse(sliced), parseError: null };
   } catch (error) {
     return { parsed: null, parseError: `json_parse_error:${error?.message || "unknown"}` };
   }

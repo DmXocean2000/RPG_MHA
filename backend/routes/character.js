@@ -1,16 +1,8 @@
 const express = require("express");
-const crypto = require("crypto");
+const { generateId, badRequest, notFound } = require("../utils/routeHelpers");
 
 const VALID_FACTIONS = new Set(["hero", "villain", "civilian"]);
 const VALID_QUIRKS = new Set(["hardening", "half_cold_half_hot", "fiber_master", "quirkless"]);
-
-function generateId(prefix) {
-  return `${prefix}_${crypto.randomUUID()}`;
-}
-
-function badRequest(message) {
-  return { error: "Bad Request", message };
-}
 
 function createCharacterRouter({ characters }) {
   const router = express.Router();
@@ -54,7 +46,7 @@ function createCharacterRouter({ characters }) {
 
     const character = characters.get(characterId);
     if (!character) {
-      return res.status(404).json({ error: "Not Found", message: "Character not found" });
+      return res.status(404).json(notFound("Character not found"));
     }
 
     if (typeof quirk !== "string" || !VALID_QUIRKS.has(quirk)) {

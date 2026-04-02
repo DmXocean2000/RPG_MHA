@@ -44,6 +44,9 @@ export default function DevToolsPage() {
   const [newPlayerName, setNewPlayerName] = useState("DevPlayer");
   const [newFaction, setNewFaction] = useState("hero");
   const [newQuirk, setNewQuirk] = useState("quirkless");
+  const [newPlayerHp, setNewPlayerHp] = useState("20");
+  const [newPlayerEnergy, setNewPlayerEnergy] = useState("20");
+  const [newInventoryText, setNewInventoryText] = useState("");
   const [newDmChoice, setNewDmChoice] = useState("aizawa");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -115,6 +118,9 @@ export default function DevToolsPage() {
           playerName: newPlayerName,
           faction: newFaction,
           quirk: newQuirk,
+          playerHp: Number(newPlayerHp),
+          playerEnergy: Number(newPlayerEnergy),
+          inventory: parseInventory(newInventoryText),
           dmChoice: newDmChoice,
         },
       });
@@ -180,7 +186,10 @@ export default function DevToolsPage() {
       <section className="rounded-2xl border border-gray-700 bg-panel p-6 shadow-glow sm:p-8">
         <div className="mb-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-indigo-300">Developer Mode</h1>
-          <Link to="/create" className="text-sm text-indigo-300 hover:text-indigo-200">
+          <Link
+            to={gameId.trim() ? `/game/${gameId.trim()}` : "/create"}
+            className="text-sm text-indigo-300 hover:text-indigo-200"
+          >
             Back to Game
           </Link>
         </div>
@@ -258,7 +267,7 @@ export default function DevToolsPage() {
 
         <div className="mt-4 rounded-lg border border-gray-700 bg-gray-800/60 p-3">
           <p className="mb-2 text-xs font-semibold text-indigo-300">New Dev Game Setup</p>
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-6">
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-300">Player Name</label>
               <input
@@ -306,6 +315,40 @@ export default function DevToolsPage() {
                 <option value="quirkless">quirkless</option>
               </select>
             </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-300">Starting HP</label>
+              <input
+                type="number"
+                value={newPlayerHp}
+                min={0}
+                max={20}
+                onChange={(e) => setNewPlayerHp(e.target.value)}
+                className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-300">Starting Energy</label>
+              <input
+                type="number"
+                value={newPlayerEnergy}
+                min={0}
+                max={20}
+                onChange={(e) => setNewPlayerEnergy(e.target.value)}
+                className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2"
+              />
+            </div>
+          </div>
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-semibold text-gray-300">
+              Starting Inventory (comma or newline separated)
+            </label>
+            <textarea
+              rows={3}
+              value={newInventoryText}
+              onChange={(e) => setNewInventoryText(e.target.value)}
+              placeholder="3 wood&#10;2 fish"
+              className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2"
+            />
           </div>
         </div>
 

@@ -1,13 +1,7 @@
 const express = require("express");
 const { generateTurnResponse } = require("../services/grokService");
-
-function badRequest(message) {
-  return { error: "Bad Request", message };
-}
-
-function notFound(message) {
-  return { error: "Not Found", message };
-}
+const { badRequest, notFound } = require("../utils/routeHelpers");
+const MAX_ACTION_LENGTH = 1000;
 
 function normalizeKey(value) {
   return String(value || "")
@@ -266,7 +260,7 @@ function applyEnergyChangesFromModel(gameState, energyChange) {
   let factionReason = "";
   if (isVillainPlayer(gameState) && baseDelta < 0) {
     const effort = String(energyChange?.effort || "").toLowerCase().trim();
-    factionAdjustment = effort === "high" ? 2 : effort === "medium" ? 2 : 1;
+    factionAdjustment = effort === "high" ? 3 : effort === "medium" ? 2 : 1;
     factionReason = "Villain endurance reduced energy loss.";
   }
 
@@ -325,6 +319,9 @@ function createGameRouter({ games, turnHistoryByGame }) {
       if (typeof action !== "string" || !action.trim()) {
         return res.status(400).json(badRequest("action is required and must be a non-empty string"));
       }
+      if (action.trim().length > MAX_ACTION_LENGTH) {
+        return res.status(400).json(badRequest(`action exceeds ${MAX_ACTION_LENGTH} characters`));
+      }
 
       const { response, source, meta } = await generateTurnResponse({
         gameState,
@@ -345,6 +342,7 @@ function createGameRouter({ games, turnHistoryByGame }) {
       response.companion_energy_changes = companionEnergyChanges;
       response.item_changes = itemChanges;
       const trustChanges = applyTrustChangesFromModel(gameState, response?.trust_changes || []);
+      response.trust_changes = trustChanges;
 
       const history = turnHistoryByGame.get(gameId) ?? [];
       history.push({

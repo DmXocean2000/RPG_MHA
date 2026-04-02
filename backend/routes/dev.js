@@ -1,28 +1,13 @@
 const express = require("express");
-const crypto = require("crypto");
 const { createOpeningResponse } = require("../prompts/openingScenes");
+const { generateId, badRequest, notFound } = require("../utils/routeHelpers");
+const { getCompanionIdsForDm, createCompanionStatus } = require("../utils/companionHelpers");
 
 const ALLOWED_FACTIONS = new Set(["hero", "villain", "civilian"]);
 const ALLOWED_DMS = new Set(["aizawa", "iida", "bakugo", "midoriya"]);
 const ALLOWED_QUIRKS = new Set(["hardening", "half_cold_half_hot", "fiber_master", "quirkless"]);
-const HERO_ROSTER = ["aizawa", "iida", "bakugo", "midoriya"];
-const DISPLAY_NAME = {
-  aizawa: "Aizawa",
-  iida: "Iida",
-  bakugo: "Bakugo",
-  midoriya: "Midoriya",
-};
-
 function unauthorized(message) {
   return { error: "Unauthorized", message };
-}
-
-function badRequest(message) {
-  return { error: "Bad Request", message };
-}
-
-function notFound(message) {
-  return { error: "Not Found", message };
 }
 
 function parsePassword(req) {
@@ -87,46 +72,10 @@ function normalizeInventory(value) {
     .map(([name, quantity]) => ({ name, quantity }));
 }
 
-function generateId(prefix) {
-  return `${prefix}_${crypto.randomUUID()}`;
-}
-
-function getCompanionIdsForDm(dmChoice) {
-  return HERO_ROSTER.filter((id) => id !== dmChoice);
-}
-
-function createCompanionStatus(faction, dmChoice) {
-  const companionIds = getCompanionIdsForDm(dmChoice);
-  const byFaction = {
-    hero: {
-      midoriya: { trust: 74, treatment: "Supportive", status: "Focused and optimistic" },
-      iida: { trust: 70, treatment: "Formal respect", status: "Coordinating party protocol" },
-      aizawa: { trust: 62, treatment: "Pragmatic tolerance", status: "Watching for threats" },
-      bakugo: { trust: 58, treatment: "Competitive respect", status: "Ready for action" },
-    },
-    villain: {
-      midoriya: { trust: 46, treatment: "Wary compliance", status: "Following orders while staying cautious" },
-      iida: { trust: 38, treatment: "Strict compliance", status: "Cooperating under protest and monitoring conduct" },
-      aizawa: { trust: 42, treatment: "Cold compliance", status: "Executing tasks pragmatically with guarded distance" },
-      bakugo: { trust: 35, treatment: "Resentful compliance", status: "Following orders while openly annoyed" },
-    },
-    civilian: {
-      midoriya: { trust: 72, treatment: "Encouraging", status: "Prioritizing your safety" },
-      iida: { trust: 67, treatment: "Protective and orderly", status: "Assigning safe roles" },
-      aizawa: { trust: 58, treatment: "Protective but blunt", status: "Keeping the route secure" },
-      bakugo: { trust: 52, treatment: "Tough but protective", status: "Guarding the perimeter" },
-    },
-  };
-
-  const baseline = byFaction[faction] || byFaction.hero;
-  return companionIds.map((id) => ({
-    name: DISPLAY_NAME[id] || id,
-    trust: baseline[id].trust,
-    hp: 20,
-    energy: 20,
-    treatment: baseline[id].treatment,
-    status: baseline[id].status,
-  }));
+function clamp0to20(value, fallback = 20) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(20, numeric));
 }
 
 function createDevRouter({ games, turnHistoryByGame }) {
@@ -156,6 +105,9 @@ function createDevRouter({ games, turnHistoryByGame }) {
     const dmChoice = typeof settings.dmChoice === "string" && ALLOWED_DMS.has(settings.dmChoice) ? settings.dmChoice : "aizawa";
     const quirk =
       typeof settings.quirk === "string" && ALLOWED_QUIRKS.has(settings.quirk) ? settings.quirk : "quirkless";
+    const playerHp = clamp0to20(settings.playerHp, 20);
+    const playerEnergy = clamp0to20(settings.playerEnergy, 20);
+    const startingInventory = normalizeInventory(settings.inventory);
 
     const gameId = generateId("game");
     const gameState = {
@@ -164,9 +116,9 @@ function createDevRouter({ games, turnHistoryByGame }) {
         name: playerName,
         faction,
         quirk,
-        hp: 20,
-        energy: 20,
-        inventory: [],
+        hp: playerHp,
+        energy: playerEnergy,
+        inventory: startingInventory,
       },
       campaign: {
         type: "hero",
