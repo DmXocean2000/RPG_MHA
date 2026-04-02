@@ -6,6 +6,7 @@ const cors = require("cors");
 const { createCharacterRouter } = require("./routes/character");
 const { createCampaignRouter } = require("./routes/campaign");
 const { createGameRouter } = require("./routes/game");
+const { createDevRouter } = require("./routes/dev");
 
 const app = express();
 const port = Number(process.env.PORT) || 3001;
@@ -26,6 +27,7 @@ app.get("/health", (req, res) => {
 app.use("/api/character", createCharacterRouter(store));
 app.use("/api/campaign", createCampaignRouter(store));
 app.use("/api/game", createGameRouter(store));
+app.use("/api/dev", createDevRouter(store));
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not Found", message: "Route not found" });

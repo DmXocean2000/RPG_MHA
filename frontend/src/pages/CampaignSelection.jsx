@@ -89,6 +89,16 @@ const DM_OPTIONS = {
   // ],
 };
 
+function readStoredCharacter() {
+  const raw = localStorage.getItem("rpg_character");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 function initials(name) {
   return name
     .split(" ")
@@ -105,6 +115,8 @@ export default function CampaignSelectionPage() {
   const [error, setError] = useState("");
 
   const characterId = localStorage.getItem("rpg_characterId");
+  const character = readStoredCharacter();
+  const selectedQuirk = localStorage.getItem("rpg_selectedQuirk") || character?.quirk || "";
   const options = DM_OPTIONS.hero;
 
   async function handleSelectCampaign() {
@@ -119,6 +131,10 @@ export default function CampaignSelectionPage() {
       setError("Select a DM to continue.");
       return;
     }
+    if (!selectedQuirk) {
+      setError("Select your quirk first.");
+      return;
+    }
 
     const finalCampaign = "hero";
 
@@ -131,7 +147,7 @@ export default function CampaignSelectionPage() {
       });
       localStorage.setItem("rpg_gameId", data.gameId);
       navigate(`/game/${data.gameId}`, {
-        state: { openingResponse: data.openingResponse },
+        state: { openingResponse: data.openingResponse, dmChoice: selectedDm },
       });
     } catch (requestError) {
       const message = requestError?.response?.data?.message || "Failed to start campaign.";
@@ -148,6 +164,11 @@ export default function CampaignSelectionPage() {
         <p className="mt-2 text-sm text-gray-400">
           Choose your DM. The other 3 will be your companions for this mission.
         </p>
+        {!selectedQuirk && (
+          <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+            Quirk not selected yet. Go back and pick a quirk before starting.
+          </p>
+        )}
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {options.map((dm) => (
@@ -184,13 +205,21 @@ export default function CampaignSelectionPage() {
 
         {error && <p className="mt-5 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
 
-        <button
-          onClick={handleSelectCampaign}
-          disabled={loading}
-          className="mt-6 rounded-lg bg-indigo-600 px-5 py-3 font-semibold transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loading ? "Starting..." : "Start Campaign"}
-        </button>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            onClick={() => navigate("/quirk")}
+            className="rounded-lg border border-gray-600 bg-gray-800 px-5 py-3 font-semibold text-gray-200 transition hover:border-indigo-300 hover:text-white"
+          >
+            Back
+          </button>
+          <button
+            onClick={handleSelectCampaign}
+            disabled={loading}
+            className="rounded-lg bg-indigo-600 px-5 py-3 font-semibold transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? "Starting..." : "Start Campaign"}
+          </button>
+        </div>
       </section>
     </main>
   );

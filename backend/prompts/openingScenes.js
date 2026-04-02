@@ -185,15 +185,24 @@ const FACTION_TITLE = {
   civilian: "civilian",
 };
 
-function createOpeningResponse({ dmName, playerName, faction }) {
+const QUIRK_LABEL = {
+  hardening: "Hardening",
+  half_cold_half_hot: "Half-Cold Half-Hot",
+  fiber_master: "Fiber Master",
+  quirkless: "Quirkless",
+};
+
+function createOpeningResponse({ dmName, playerName, faction, quirk }) {
   const intro = OPENING_BY_DM[dmName] || "You wake up stranded on a dangerous island. The party turns toward you.";
   const factionLine = FACTION_REACTION[faction] || "";
   const factionTitle = FACTION_TITLE[faction] || "adventurer";
+  const quirkName = QUIRK_LABEL[quirk] || "Quirkless";
+  const quirkLine = `Your current quirk: ${quirkName}.`;
   const nameLine = playerName ? `\n\n${playerName}, all eyes are on you.` : "";
   const roleAdjustedIntro = intro.replaceAll("{{role}}", factionTitle);
 
   return {
-    dm_narration: `${roleAdjustedIntro}${nameLine}${factionLine ? `\n\n${factionLine}` : ""}`,
+    dm_narration: `${roleAdjustedIntro}${nameLine}${factionLine ? `\n\n${factionLine}` : ""}\n\n${quirkLine}`,
     companions_pre: [],
     companions_post: [],
   };

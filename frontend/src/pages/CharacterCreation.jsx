@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 
 const FACTIONS = ["hero", "villain", "civilian"];
@@ -34,7 +34,7 @@ export default function CharacterCreationPage() {
 
       localStorage.setItem("rpg_character", JSON.stringify(data.character));
       localStorage.setItem("rpg_characterId", data.characterId);
-      navigate("/campaign");
+      navigate("/quirk");
     } catch (requestError) {
       const message = requestError?.response?.data?.message || "Failed to create character.";
       setError(message);
@@ -48,6 +48,11 @@ export default function CharacterCreationPage() {
       <section className="w-full rounded-2xl border border-indigo-700/40 bg-panel p-6 shadow-glow sm:p-8">
         <h1 className="text-2xl font-bold text-indigo-300">Character Creation</h1>
         <p className="mt-2 text-sm text-gray-400">Forge your identity before the campaign begins.</p>
+        <div className="mt-2">
+          <Link to="/dev" className="text-xs text-indigo-300 hover:text-indigo-200">
+            Developer Mode
+          </Link>
+        </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div>
@@ -96,7 +101,7 @@ export default function CharacterCreationPage() {
             disabled={loading}
             className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Creating..." : "Continue"}
+            {loading ? "Creating..." : "Continue to Quirk Selection"}
           </button>
         </form>
       </section>

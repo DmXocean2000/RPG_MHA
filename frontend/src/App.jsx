@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import CharacterCreationPage from "./pages/CharacterCreation";
+import QuirkSelectionPage from "./pages/QuirkSelection";
 import CampaignSelectionPage from "./pages/CampaignSelection";
 import GameScreenPage from "./pages/GameScreen";
+import DevToolsPage from "./pages/DevTools";
 
 export default function App() {
   return (
@@ -9,8 +11,10 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/create" replace />} />
         <Route path="/create" element={<CharacterCreationPage />} />
+        <Route path="/quirk" element={<QuirkSelectionPage />} />
         <Route path="/campaign" element={<CampaignSelectionPage />} />
         <Route path="/game/:gameId" element={<GameScreenPage />} />
+        <Route path="/dev" element={<DevToolsPage />} />
       </Routes>
     </div>
   );

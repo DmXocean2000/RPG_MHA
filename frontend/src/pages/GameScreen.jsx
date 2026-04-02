@@ -64,7 +64,7 @@ function normalizeCompanions(list) {
     });
 }
 
-function asMessageList(response) {
+function asMessageList(response, dmSpeaker = "dm") {
   const safeResponse = response && typeof response === "object" ? response : {};
   const dmNarration =
     typeof safeResponse.dm_narration === "string" && safeResponse.dm_narration.trim()
@@ -72,9 +72,10 @@ function asMessageList(response) {
       : "The DM pauses, watching what you will do next.";
   const companionsPre = normalizeCompanions(safeResponse.companions_pre);
   const companionsPost = normalizeCompanions(safeResponse.companions_post);
+  const dmKey = String(dmSpeaker || "dm").toLowerCase().trim();
 
   const list = [
-    { speaker: "dm", name: "DM", text: dmNarration, kind: "dm" },
+    { speaker: dmKey, name: `DM · ${toDisplayName(dmKey)}`, text: dmNarration, kind: "dm" },
     ...companionsPre,
   ];
 
@@ -96,11 +97,32 @@ function asMessageList(response) {
     });
   }
 
+  if (safeResponse.energy_change && typeof safeResponse.energy_change === "object") {
+    const appliedDelta = Number(safeResponse.energy_change.appliedDelta ?? safeResponse.energy_change.delta ?? 0);
+    const before = Number(safeResponse.energy_change.before);
+    const after = Number(safeResponse.energy_change.after);
+    const hasBounds = Number.isFinite(before) && Number.isFinite(after);
+    const reason = typeof safeResponse.energy_change.reason === "string" ? safeResponse.energy_change.reason : "";
+    const effort = typeof safeResponse.energy_change.effort === "string" ? safeResponse.energy_change.effort : "unknown";
+    const trend = appliedDelta < 0 ? "spent" : appliedDelta > 0 ? "recovered" : "unchanged";
+    const amount = Math.abs(appliedDelta);
+
+    list.push({
+      speaker: "system",
+      name: "Energy",
+      text: hasBounds
+        ? `Energy ${trend}: ${amount} (${before} -> ${after}). Effort: ${effort}.${reason ? ` ${reason}` : ""}`
+        : `Energy ${trend}: ${amount}. Effort: ${effort}.${reason ? ` ${reason}` : ""}`,
+      kind: "system",
+      tone: appliedDelta < 0 ? "failure" : appliedDelta > 0 ? "success" : "neutral",
+    });
+  }
+
   list.push(...companionsPost);
   return list;
 }
 
-function historyToMessages(turnHistory) {
+function historyToMessages(turnHistory, dmSpeaker = "dm") {
   if (!Array.isArray(turnHistory)) return [];
 
   return turnHistory.flatMap((entry) => {
@@ -111,7 +133,7 @@ function historyToMessages(turnHistory) {
       items.push({ speaker: "you", name: "You", text: action, kind: "player" });
     }
 
-    items.push(...asMessageList(entry?.response));
+    items.push(...asMessageList(entry?.response, dmSpeaker));
     return items;
   });
 }
@@ -140,6 +162,12 @@ function trustBarClass(value) {
   return "bg-rose-500";
 }
 
+function vitalsBarClass(value) {
+  if (value >= 14) return "bg-emerald-500";
+  if (value >= 7) return "bg-amber-500";
+  return "bg-rose-500";
+}
+
 export default function GameScreenPage() {
   const { gameId } = useParams();
   const location = useLocation();
@@ -155,20 +183,21 @@ export default function GameScreenPage() {
   useEffect(() => {
     const openingResponse = location?.state?.openingResponse;
     if (openingResponse) {
-      setMessages(asMessageList(openingResponse));
+      const dmSpeaker = location?.state?.dmChoice || "dm";
+      setMessages(asMessageList(openingResponse, dmSpeaker));
     }
-  }, [location?.state?.openingResponse]);
+  }, [location?.state?.openingResponse, location?.state?.dmChoice]);
 
   useEffect(() => {
     async function loadGame() {
       try {
         const { data } = await api.get(`/api/game/${gameId}`);
         setGameState(data.gameState);
-        const historyMessages = historyToMessages(data.turnHistory);
+        const historyMessages = historyToMessages(data.turnHistory, data?.gameState?.campaign?.dm);
         setMessages((prev) => {
           if (historyMessages.length > 0) return historyMessages;
           if (prev.length > 0) return prev;
-          return asMessageList(buildFallbackOpeningResponse(data.gameState));
+          return asMessageList(buildFallbackOpeningResponse(data.gameState), data?.gameState?.campaign?.dm);
         });
       } catch {
         setError("Game not found. Start a campaign first.");
@@ -199,7 +228,7 @@ export default function GameScreenPage() {
       setMessages((prev) => [
         ...prev,
         { speaker: "you", name: "You", text: action, kind: "player" },
-        ...asMessageList(data.response),
+        ...asMessageList(data.response, gameState?.campaign?.dm),
       ]);
       setActionInput("");
     } catch (requestError) {
@@ -216,8 +245,22 @@ export default function GameScreenPage() {
         <div className="text-sm text-gray-300">
           <span className="font-semibold text-indigo-300">Location:</span> {gameState?.location || "beach"}
         </div>
-        <div className="text-sm text-gray-300">HP: {gameState?.player?.hp ?? 12}/12</div>
+        <div className="text-sm text-gray-300">Quirk: {gameState?.player?.quirk || "quirkless"}</div>
+        <div className="text-sm text-gray-300">HP: {gameState?.player?.hp ?? 20}/20</div>
+        <div className="text-sm text-gray-300">Energy: {gameState?.player?.energy ?? 20}/20</div>
         <div className="text-sm text-gray-300">🥥: {gameState?.coconuts ?? 0}</div>
+        <button
+          onClick={() => navigate("/create")}
+          className="rounded-md border border-gray-600 bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:border-indigo-300 hover:text-white"
+        >
+          Restart Campaign
+        </button>
+        <button
+          onClick={() => navigate("/dev", { state: { gameId } })}
+          className="rounded-md border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-200 transition hover:border-indigo-300 hover:text-indigo-100"
+        >
+          Developer Mode
+        </button>
       </header>
 
       <button
@@ -241,15 +284,11 @@ export default function GameScreenPage() {
                 key={`${message.name}-${index}`}
                 className={`message-enter rounded-xl border p-3 ${
                   message.kind === "dm"
-                    ? "border-indigo-400/60 bg-indigo-500/15 text-base"
+                    ? `${SPEAKER_STYLES[message.speaker] || "border-indigo-400/60 bg-indigo-500/15"} text-base`
                     : message.kind === "player"
                     ? "border-sky-500/50 bg-sky-500/10"
                     : message.kind === "system"
-                    ? message.tone === "success"
-                      ? "border-emerald-500/50 bg-emerald-500/10 text-sm"
-                      : message.tone === "failure"
-                      ? "border-red-500/50 bg-red-500/10 text-sm"
-                      : "border-purple-500/40 bg-purple-500/10 text-sm"
+                    ? "border-slate-500/40 bg-slate-500/10 text-sm"
                     : SPEAKER_STYLES[message.speaker] || "border-gray-700 bg-panel"
                 }`}
               >
@@ -296,9 +335,16 @@ export default function GameScreenPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold transition hover:bg-indigo-500 disabled:opacity-60"
+                className="flex min-w-[92px] items-center justify-center rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold transition hover:bg-indigo-500 disabled:opacity-60"
               >
-                Send
+                {isSubmitting ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+                    Sending
+                  </span>
+                ) : (
+                  "Send"
+                )}
               </button>
             </form>
             {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
@@ -335,6 +381,20 @@ export default function GameScreenPage() {
                     <p className="text-sm font-semibold text-gray-100">{companion.name}</p>
                     <p className="mt-1 text-xs text-gray-300">Status: {companion.status}</p>
                     <p className="text-xs text-gray-300">Treatment: {companion.treatment}</p>
+                    <p className="mt-1 text-xs text-gray-300">HP: {companion.hp ?? 20}/20</p>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded bg-gray-700">
+                      <div
+                        className={`h-full ${vitalsBarClass(companion.hp ?? 20)}`}
+                        style={{ width: `${Math.max(0, Math.min(100, ((companion.hp ?? 20) / 20) * 100))}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-gray-300">Energy: {companion.energy ?? 20}/20</p>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded bg-gray-700">
+                      <div
+                        className={`h-full ${vitalsBarClass(companion.energy ?? 20)}`}
+                        style={{ width: `${Math.max(0, Math.min(100, ((companion.energy ?? 20) / 20) * 100))}%` }}
+                      />
+                    </div>
                     <p className="mt-1 text-xs text-gray-300">
                       Trust: {companion.trust}/100 ({trustLabel(companion.trust)})
                     </p>
