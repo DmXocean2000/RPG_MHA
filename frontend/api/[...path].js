@@ -17,9 +17,7 @@ function buildTargetUrl(req) {
   const params = new URLSearchParams(req.query || {});
   params.delete("path");
   const query = params.toString();
-  if (query) {
-    url.search = query;
-  }
+  if (query) url.search = query;
   return url.toString();
 }
 
@@ -39,10 +37,7 @@ function buildForwardHeaders(req) {
 function buildBody(req) {
   if (req.method === "GET" || req.method === "HEAD") return undefined;
   if (req.body == null) return undefined;
-
-  if (typeof req.body === "string" || Buffer.isBuffer(req.body)) {
-    return req.body;
-  }
+  if (typeof req.body === "string" || Buffer.isBuffer(req.body)) return req.body;
   return JSON.stringify(req.body);
 }
 
@@ -65,7 +60,6 @@ module.exports = async function handler(req, res) {
     const contentType = response.headers.get("content-type") || "application/json";
     res.status(response.status);
     res.setHeader("content-type", contentType);
-
     const text = await response.text();
     return res.send(text);
   } catch (error) {
