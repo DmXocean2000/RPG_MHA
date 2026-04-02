@@ -36,6 +36,24 @@ const SPEAKER_STYLES = {
   companion2: "border-amber-500/40 bg-amber-500/10",
   companion3: "border-rose-500/40 bg-rose-500/10",
 };
+const COMPANION_PROFILES = {
+  aizawa: {
+    strengths: ["Tactics", "Survival", "Threat control"],
+    weaknesses: ["Speed", "Raw strength", "Stamina drain"],
+  },
+  iida: {
+    strengths: ["Speed", "Perception", "Scouting"],
+    weaknesses: ["Heavy combat", "Rule flexibility", "Improvisation"],
+  },
+  bakugo: {
+    strengths: ["Combat/Hunting", "Cooking", "Heavy lifting"],
+    weaknesses: ["Diplomacy", "Patience", "Team friction"],
+  },
+  midoriya: {
+    strengths: ["Analysis", "Crisis planning", "Quirk potential"],
+    weaknesses: ["Cooking", "Quirk overuse risk", "Durability"],
+  },
+};
 
 function toDisplayName(rawName) {
   const key = String(rawName || "").toLowerCase().trim();
@@ -46,6 +64,11 @@ function toDisplayName(rawName) {
     .split(/[\s_-]+/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function companionProfileForName(rawName) {
+  const key = String(rawName || "").toLowerCase().trim();
+  return COMPANION_PROFILES[key] || null;
 }
 
 function normalizeCompanions(list) {
@@ -340,7 +363,6 @@ export default function GameScreenPage() {
         <div className="text-sm text-gray-300">Quirk: {gameState?.player?.quirk || "quirkless"}</div>
         <div className="text-sm text-gray-300">HP: {gameState?.player?.hp ?? 20}/20</div>
         <div className="text-sm text-gray-300">Energy: {gameState?.player?.energy ?? 20}/20</div>
-        <div className="text-sm text-gray-300">🥥: {gameState?.coconuts ?? 0}</div>
         <button
           onClick={() => navigate("/create")}
           className="rounded-md border border-gray-600 bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:border-indigo-300 hover:text-white"
@@ -471,6 +493,16 @@ export default function GameScreenPage() {
                 {companionStatus.map((companion) => (
                   <article key={companion.name} className="rounded-lg border border-gray-700 bg-gray-800/80 p-3">
                     <p className="text-sm font-semibold text-gray-100">{companion.name}</p>
+                    {companionProfileForName(companion.name) && (
+                      <p className="mt-1 text-[11px] text-indigo-200">
+                        Strong: {companionProfileForName(companion.name).strengths.join(", ")}
+                      </p>
+                    )}
+                    {companionProfileForName(companion.name) && (
+                      <p className="text-[11px] text-amber-200">
+                        Weak: {companionProfileForName(companion.name).weaknesses.join(", ")}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-gray-300">Status: {companion.status}</p>
                     <p className="text-xs text-gray-300">Treatment: {companion.treatment}</p>
                     <p className="mt-1 text-xs text-gray-300">HP: {companion.hp ?? 20}/20</p>

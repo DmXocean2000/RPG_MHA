@@ -15,6 +15,10 @@ function normalizeKey(value) {
     .replace(/[^a-z]/g, "");
 }
 
+function isVillainPlayer(gameState) {
+  return String(gameState?.player?.faction || "").toLowerCase().trim() === "villain";
+}
+
 function clamp0to20(value, fallback = 20) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -77,16 +81,27 @@ function applyHealthChangesFromModel(gameState, healthChanges) {
 
     if (target === "player" && gameState?.player) {
       const before = clamp0to20(gameState.player.hp, 20);
-      const after = clamp0to20(before + delta, 20);
+      let effectiveDelta = delta;
+      let factionReason = "";
+      if (isVillainPlayer(gameState) && delta < 0) {
+        const mitigation = Math.max(1, Math.round(Math.abs(delta) * 0.25));
+        effectiveDelta = Math.min(0, delta + mitigation);
+        if (effectiveDelta !== delta) {
+          factionReason = " Villain resilience reduced incoming damage.";
+        }
+      }
+
+      const after = clamp0to20(before + effectiveDelta, 20);
       gameState.player.hp = after;
       applied.push({
         target: "player",
         name: gameState.player?.name || "Player",
         delta: after - before,
         requestedDelta: delta,
+        factionAdjustment: effectiveDelta - delta,
         before,
         after,
-        reason,
+        reason: `${reason || ""}${factionReason}`.trim(),
       });
       continue;
     }
@@ -247,7 +262,15 @@ function applyEnergyChangesFromModel(gameState, energyChange) {
     }
   }
 
-  const unclampedDelta = baseDelta + diceAdjustment;
+  let factionAdjustment = 0;
+  let factionReason = "";
+  if (isVillainPlayer(gameState) && baseDelta < 0) {
+    const effort = String(energyChange?.effort || "").toLowerCase().trim();
+    factionAdjustment = effort === "high" ? 2 : effort === "medium" ? 2 : 1;
+    factionReason = "Villain endurance reduced energy loss.";
+  }
+
+  const unclampedDelta = baseDelta + diceAdjustment + factionAdjustment;
   const unclampedAfter = before + unclampedDelta;
   const after = Math.max(0, Math.min(20, unclampedAfter));
   const appliedDelta = after - before;
@@ -261,11 +284,12 @@ function applyEnergyChangesFromModel(gameState, energyChange) {
   return {
     baseDelta,
     diceAdjustment,
+    factionAdjustment,
     appliedDelta,
     before,
     after,
     effort: typeof energyChange?.effort === "string" ? energyChange.effort : "unknown",
-    reason: diceReason ? `${baseReason} ${diceReason}` : baseReason,
+    reason: `${baseReason}${diceReason ? ` ${diceReason}` : ""}${factionReason ? ` ${factionReason}` : ""}`.trim(),
   };
 }
 

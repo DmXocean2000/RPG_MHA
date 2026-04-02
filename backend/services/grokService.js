@@ -304,6 +304,7 @@ function trustBehaviorForScore(trustScore) {
 
 function buildCompanionTrustGuidance(gameState) {
   const companions = Array.isArray(gameState?.companionStatus) ? gameState.companionStatus : [];
+  const isVillainFaction = String(gameState?.player?.faction || "").toLowerCase().trim() === "villain";
   if (companions.length === 0) {
     return "No companion trust data available.";
   }
@@ -315,19 +316,25 @@ function buildCompanionTrustGuidance(gameState) {
       const hp = Number.isFinite(Number(companion?.hp)) ? Number(companion.hp) : 20;
       const energy = Number.isFinite(Number(companion?.energy)) ? Number(companion.energy) : 20;
       const behavior = trustBehaviorForScore(trust);
-      const refusalStyle =
-        trust >= 80
-          ? "If refusing, be polite and protective."
-          : trust >= 40
-          ? "If refusing, be calm and direct."
-          : trust >= 15
-          ? "If refusing, be skeptical and blunt."
-          : "If refusing, be rude or openly hostile.";
+      const refusalStyle = isVillainFaction
+        ? trust >= 40
+          ? "If refusing, be calm/direct but still mostly comply with orders unless collapse risk is high."
+          : "If refusing, be resentful or rude, but still usually comply unless collapse risk is high."
+        : trust >= 80
+        ? "If refusing, be polite and protective."
+        : trust >= 40
+        ? "If refusing, be calm and direct."
+        : trust >= 15
+        ? "If refusing, be skeptical and blunt."
+        : "If refusing, be rude or openly hostile.";
       const criticalCondition = hp <= 2 || energy <= 2;
       const criticalRule = criticalCondition
         ? "CRITICAL: They are near collapse. If the next action would likely make them pass out, they should refuse participation."
         : "Not currently critical.";
-      return `- ${name}: trust=${trust} (${behavior.tier}), hp=${hp}/20, energy=${energy}/20 -> ${behavior.instruction} ${criticalRule} ${refusalStyle}`;
+      const villainComplianceRule = isVillainFaction
+        ? "Villain leadership rule: companions generally comply with direct orders, even with low trust, but tone should be resentful when trust is low."
+        : "";
+      return `- ${name}: trust=${trust} (${behavior.tier}), hp=${hp}/20, energy=${energy}/20 -> ${behavior.instruction} ${criticalRule} ${refusalStyle} ${villainComplianceRule}`.trim();
     })
     .join("\n");
 }
@@ -346,6 +353,40 @@ function buildPlayerQuirkGuidance(gameState) {
   return guidanceByQuirk[quirk] || guidanceByQuirk.quirkless;
 }
 
+function buildCompanionCapabilityGuidance(gameState) {
+  const companions = Array.isArray(gameState?.companionStatus) ? gameState.companionStatus : [];
+  if (companions.length === 0) {
+    return "No companion capability data available.";
+  }
+
+  const profiles = {
+    bakugo: {
+      strengths: ["cooking", "combat/hunting", "heavy lifting and obstacle breaking"],
+      weaknesses: ["diplomacy", "patience", "teamwork (especially with Midoriya)"],
+    },
+    midoriya: {
+      strengths: ["problem-solving", "crisis management", "high quirk power potential"],
+      weaknesses: ["cooking (high failure/food poisoning risk)", "quirk overuse self-injury risk", "lower durability"],
+    },
+    iida: {
+      strengths: ["speed", "perception", "scouting/recon"],
+      weaknesses: ["direct heavy combat", "flexibility in rule-bending scenarios", "improvisation under chaos"],
+    },
+    aizawa: {
+      strengths: ["tactics/strategy", "survival expertise", "erasure utility vs quirk threats"],
+      weaknesses: ["speed", "raw lifting strength", "energy stamina (fatigues faster)"],
+    },
+  };
+
+  return companions
+    .map((companion) => {
+      const key = String(companion?.name || "").toLowerCase().trim();
+      const profile = profiles[key] || { strengths: ["general support"], weaknesses: ["no special profile"] };
+      return `- ${companion.name}: strengths=${profile.strengths.join(", ")}; weaknesses=${profile.weaknesses.join(", ")}`;
+    })
+    .join("\n");
+}
+
 async function generateTurnResponse({ gameState, action }) {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) {
@@ -358,8 +399,10 @@ async function generateTurnResponse({ gameState, action }) {
 
   const systemPrompt = getDmSystemPrompt(gameState.campaign.dm);
   const companionTrustGuidance = buildCompanionTrustGuidance(gameState);
+  const companionCapabilityGuidance = buildCompanionCapabilityGuidance(gameState);
   const playerQuirkGuidance = buildPlayerQuirkGuidance(gameState);
   const playerQuirk = String(gameState?.player?.quirk || "quirkless");
+  const playerFaction = String(gameState?.player?.faction || "hero");
   const currentEnergy = Number.isFinite(Number(gameState?.player?.energy)) ? Number(gameState.player.energy) : 20;
   const userPrompt = [
     "Return ONLY JSON. Always include ALL keys exactly in this schema (never omit keys):",
@@ -387,6 +430,22 @@ async function generateTurnResponse({ gameState, action }) {
     "When dice_roll is present, still provide base energy_change; the server may adjust final cost by roll outcome.",
     "For injuries or healing, include health_changes with signed deltas.",
     "When the action crafts/uses resources (like fire-making), include the item usage in item_changes.",
+    "Companion capability mechanics (must apply in outcomes and narration):",
+    "- Bakugo excels at hunting/combat/cooking/heavy tasks; poor diplomacy/patience; teamwork friction with Midoriya when stressed.",
+    "- Midoriya excels at analysis and crisis planning; poor cooking (serious failure/food poisoning risk), quirk overuse can self-injure.",
+    "- Iida excels at scouting/speed/perception; weaker at brute-force combat and chaotic improvisation.",
+    "- Aizawa excels at tactics/survival/threat control; lower speed and stamina for prolonged heavy tasks.",
+    "Task difficulty adjustment rule:",
+    "- If assigned companion task matches strengths, resolve more favorably (roughly easier by one difficulty step).",
+    "- If task matches weaknesses, resolve less favorably (roughly harder by one difficulty step).",
+    "Synergy/conflict rule:",
+    "- Bakugo + Midoriya on the same precision/teamwork task should add friction unless both trust levels are high.",
+    "- Midoriya cooking attempts should usually be risky unless tightly supervised by a better cook.",
+    "Faction mechanic rules:",
+    "- If player faction is villain: reflect resilience and endurance (slightly less severe stamina/injury outcomes where sensible).",
+    "- If player faction is villain: companions should generally obey direct orders unless obeying would likely make them pass out now.",
+    "- Villain companion compliance can be resentful, cold, or rude, but still cooperative in execution.",
+    "- For villain intimidation/deception attempts, lean toward stronger outcomes when plausible.",
     "Companion trust behavior rules (must follow):",
     "- 80-100: supportive -> helpful, cooperative, and more willing to follow player direction.",
     "- 40-79: neutral -> steady, practical, neither strongly supportive nor hostile.",
@@ -397,12 +456,15 @@ async function generateTurnResponse({ gameState, action }) {
     "If a companion has hp <= 2 or energy <= 2 and the requested action would likely make them pass out, they may refuse.",
     "Refusal tone must reflect trust: high trust = polite/protective refusal, low trust = rude/hostile refusal.",
     "Keep language clean and suitable for all ages. No profanity.",
+    `Player faction: ${playerFaction}`,
     `Player quirk: ${playerQuirk}`,
     `Current player energy: ${currentEnergy}/20`,
     "Player quirk guidance (must follow):",
     playerQuirkGuidance,
     "Companion trust guidance for current state:",
     companionTrustGuidance,
+    "Companion capability guidance for current state:",
+    companionCapabilityGuidance,
     `Player action: ${action}`,
     `Current game state: ${JSON.stringify(gameState)}`,
   ].join("\n");
@@ -410,7 +472,7 @@ async function generateTurnResponse({ gameState, action }) {
   const payload = {
     model: XAI_MODEL,
     temperature: 0.7,
-    
+    // input character limit if needed example max_tokens: 8192
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

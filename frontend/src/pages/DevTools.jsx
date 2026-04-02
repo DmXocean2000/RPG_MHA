@@ -50,7 +50,6 @@ export default function DevToolsPage() {
   const [verified, setVerified] = useState(false);
   const [gameState, setGameState] = useState(null);
   const [inventoryText, setInventoryText] = useState("");
-  const [coconutsInput, setCoconutsInput] = useState("0");
 
   const companionStatus = useMemo(() => gameState?.companionStatus || [], [gameState?.companionStatus]);
 
@@ -94,7 +93,6 @@ export default function DevToolsPage() {
       const { data } = await api.post(`/api/dev/game/${gameId.trim()}`, { password });
       setGameState(data.gameState);
       setInventoryText(inventoryToText(data.gameState?.player?.inventory || []));
-      setCoconutsInput(String(data.gameState?.coconuts ?? 0));
       localStorage.setItem("rpg_gameId", gameId.trim());
     } catch (requestError) {
       setError(requestError?.response?.data?.message || "Failed to load game.");
@@ -123,7 +121,6 @@ export default function DevToolsPage() {
       setGameId(data.gameId);
       setGameState(data.gameState);
       setInventoryText(inventoryToText(data.gameState?.player?.inventory || []));
-      setCoconutsInput(String(data.gameState?.coconuts ?? 0));
       localStorage.setItem("rpg_gameId", data.gameId);
     } catch (requestError) {
       setError(requestError?.response?.data?.message || "Failed to create dev game.");
@@ -147,7 +144,6 @@ export default function DevToolsPage() {
           inventory: parseInventory(inventoryText),
         },
         location: gameState.location || "beach",
-        coconuts: Number(gameState.coconuts || 0),
         companionStatus: companionStatus,
       };
 
@@ -156,7 +152,6 @@ export default function DevToolsPage() {
         updates,
       });
       setGameState(data.gameState);
-      setCoconutsInput(String(data.gameState?.coconuts ?? 0));
       if (playAfterSave) {
         enterGame(gameId.trim(), { dmChoice: data?.gameState?.campaign?.dm });
       }
@@ -178,26 +173,6 @@ export default function DevToolsPage() {
       next[index] = { ...next[index], ...patch };
       return { ...prev, companionStatus: next };
     });
-  }
-
-  function handleCoconutsChange(rawValue) {
-    if (!/^\d*$/.test(rawValue)) return;
-    setCoconutsInput(rawValue);
-    if (rawValue === "") return;
-    setGameState((prev) => ({ ...prev, coconuts: Number(rawValue) }));
-  }
-
-  function handleCoconutsBlur() {
-    const normalized = coconutsInput.trim();
-    if (!normalized) {
-      setCoconutsInput("1");
-      setGameState((prev) => ({ ...prev, coconuts: 1 }));
-      return;
-    }
-    const numeric = Number(normalized);
-    const safe = Number.isFinite(numeric) ? numeric : 1;
-    setCoconutsInput(String(safe));
-    setGameState((prev) => ({ ...prev, coconuts: safe }));
   }
 
   return (
@@ -395,17 +370,6 @@ export default function DevToolsPage() {
                   onChange={(e) =>
                     setGameState((prev) => ({ ...prev, player: { ...prev.player, energy: Number(e.target.value) } }))
                   }
-                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-gray-300">Coconuts (resource count)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={coconutsInput}
-                  onChange={(e) => handleCoconutsChange(e.target.value)}
-                  onBlur={handleCoconutsBlur}
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
                 />
               </div>

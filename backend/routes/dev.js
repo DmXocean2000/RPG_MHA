@@ -105,10 +105,10 @@ function createCompanionStatus(faction, dmChoice) {
       bakugo: { trust: 58, treatment: "Competitive respect", status: "Ready for action" },
     },
     villain: {
-      midoriya: { trust: 46, treatment: "Wary but fair", status: "Trying to understand your intent" },
-      iida: { trust: 38, treatment: "Strictly guarded", status: "Monitoring for rule violations" },
-      aizawa: { trust: 42, treatment: "Cold and cautious", status: "Prepared to intervene instantly" },
-      bakugo: { trust: 35, treatment: "Openly hostile", status: "Looking for your weak spots" },
+      midoriya: { trust: 46, treatment: "Wary compliance", status: "Following orders while staying cautious" },
+      iida: { trust: 38, treatment: "Strict compliance", status: "Cooperating under protest and monitoring conduct" },
+      aizawa: { trust: 42, treatment: "Cold compliance", status: "Executing tasks pragmatically with guarded distance" },
+      bakugo: { trust: 35, treatment: "Resentful compliance", status: "Following orders while openly annoyed" },
     },
     civilian: {
       midoriya: { trust: 72, treatment: "Encouraging", status: "Prioritizing your safety" },
@@ -174,7 +174,6 @@ function createDevRouter({ games, turnHistoryByGame }) {
         companions: getCompanionIdsForDm(dmChoice),
       },
       location: "beach",
-      coconuts: 0,
       storyFlags: {},
       companionStatus: createCompanionStatus(faction, dmChoice),
     };
@@ -235,9 +234,6 @@ function createDevRouter({ games, turnHistoryByGame }) {
 
     if (typeof updates.location === "string" && updates.location.trim()) {
       gameState.location = updates.location.trim();
-    }
-    if (Number.isFinite(Number(updates.coconuts))) {
-      gameState.coconuts = Number(updates.coconuts);
     }
     if (updates.storyFlags && typeof updates.storyFlags === "object") {
       gameState.storyFlags = updates.storyFlags;
