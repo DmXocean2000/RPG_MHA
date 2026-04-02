@@ -3,17 +3,14 @@ function buildTargetUrl(req) {
   if (!backendBase) return null;
 
   const base = backendBase.replace(/\/+$/, "");
-  const pathParts = Array.isArray(req.query?.path)
-    ? req.query.path
-    : typeof req.query?.path === "string"
-    ? [req.query.path]
-    : [];
-  const joinedPath = pathParts
+  const rawPath = typeof req.query?.path === "string" ? req.query.path : "";
+  const safePath = rawPath
+    .split("/")
     .map((part) => String(part || "").trim())
     .filter(Boolean)
     .join("/");
 
-  const url = new URL(`${base}/${joinedPath}`);
+  const url = new URL(`${base}/${safePath}`);
   const params = new URLSearchParams(req.query || {});
   params.delete("path");
   const query = params.toString();
