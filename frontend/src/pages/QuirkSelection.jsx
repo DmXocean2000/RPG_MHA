@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 
 const QUIRK_OPTIONS = [
@@ -109,6 +109,14 @@ export default function QuirkSelectionPage() {
       <section className="rounded-2xl border border-gray-700 bg-panel p-6 shadow-glow sm:p-8">
         <h1 className="text-2xl font-bold text-indigo-300">Quirk Selection</h1>
         <p className="mt-2 text-sm text-gray-400">Choose your player quirk before selecting your Dungeon Master.</p>
+        <div className="mt-2 flex flex-wrap items-center gap-4">
+          <Link to="/" className="text-xs text-indigo-300 hover:text-indigo-200">
+            Back to Welcome
+          </Link>
+          <Link to="/basics" className="text-xs text-indigo-300 hover:text-indigo-200">
+            What is D&D?
+          </Link>
+        </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           {QUIRK_OPTIONS.map((quirk) => (

@@ -8,6 +8,47 @@ const PLACEHOLDER_BY_FACTION = {
   villain: "Enter your villain name",
   civilian: "Enter your civilian name",
 };
+const FACTION_DETAILS = {
+  hero: {
+    label: "Hero",
+    overview: "Balanced start with steadier team trust and fewer social penalties.",
+    pros: [
+      "Higher starting trust with companions compared to villain.",
+      "Companion tone is generally more cooperative and less hostile.",
+      "Good all-around pick for stable teamwork and planning.",
+    ],
+    cons: [
+      "No villain endurance bonus to reduce stamina loss.",
+      "No villain resilience bonus to soften incoming damage.",
+    ],
+  },
+  villain: {
+    label: "Villain",
+    overview: "Riskier social start, but tougher survival performance in hard turns.",
+    pros: [
+      "Endurance bonus reduces energy loss on costly actions.",
+      "Resilience can reduce incoming player damage from negative outcomes.",
+      "Companions are instructed to obey direct orders more often.",
+    ],
+    cons: [
+      "Lower starting companion trust and colder reactions.",
+      "More friction in dialogue and group dynamics early on.",
+    ],
+  },
+  civilian: {
+    label: "Civilian",
+    overview: "Safer social tone with protective companions, but no combat-endurance perks.",
+    pros: [
+      "Companions start more protective and safety-focused.",
+      "Solid trust baseline for cooperative survival play.",
+      "Good for cautious, story-first decision making.",
+    ],
+    cons: [
+      "No villain endurance or damage-mitigation bonuses.",
+      "Less aggressive pressure tools than a villain-style run.",
+    ],
+  },
+};
 
 export default function CharacterCreationPage() {
   const navigate = useNavigate();
@@ -15,6 +56,7 @@ export default function CharacterCreationPage() {
   const [faction, setFaction] = useState("hero");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const selectedFactionDetails = FACTION_DETAILS[faction];
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -48,7 +90,13 @@ export default function CharacterCreationPage() {
       <section className="w-full rounded-2xl border border-indigo-700/40 bg-panel p-6 shadow-glow sm:p-8">
         <h1 className="text-2xl font-bold text-indigo-300">Character Creation</h1>
         <p className="mt-2 text-sm text-gray-400">Forge your identity before the campaign begins.</p>
-        <div className="mt-2">
+        <div className="mt-2 flex flex-wrap items-center gap-4">
+          <Link to="/" className="text-xs text-indigo-300 hover:text-indigo-200">
+            Back to Welcome
+          </Link>
+          <Link to="/basics" className="text-xs text-indigo-300 hover:text-indigo-200">
+            What is D&D?
+          </Link>
           <Link to="/dev" className="text-xs text-indigo-300 hover:text-indigo-200">
             Developer Mode
           </Link>
@@ -91,6 +139,30 @@ export default function CharacterCreationPage() {
                   {value}
                 </label>
               ))}
+            </div>
+            <div className="mt-4 rounded-lg border border-gray-700 bg-gray-800/70 p-4">
+              <p className="text-sm font-semibold text-indigo-200">
+                {selectedFactionDetails.label} - Pros & Cons
+              </p>
+              <p className="mt-1 text-sm text-gray-300">{selectedFactionDetails.overview}</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Pros</p>
+                  <ul className="mt-1 space-y-1 text-sm text-gray-300">
+                    {selectedFactionDetails.pros.map((pro) => (
+                      <li key={pro}>+ {pro}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-300">Cons</p>
+                  <ul className="mt-1 space-y-1 text-sm text-gray-300">
+                    {selectedFactionDetails.cons.map((con) => (
+                      <li key={con}>- {con}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           </fieldset>
 

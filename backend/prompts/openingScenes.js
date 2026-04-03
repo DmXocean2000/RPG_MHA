@@ -198,11 +198,13 @@ function createOpeningResponse({ dmName, playerName, faction, quirk }) {
   const factionTitle = FACTION_TITLE[faction] || "adventurer";
   const quirkName = QUIRK_LABEL[quirk] || "Quirkless";
   const quirkLine = `Your current quirk: ${quirkName}.`;
+  const objectiveLine =
+    "Primary objective: explore a creepy volcanic island filled with treasure, traps, and monsters.";
   const nameLine = playerName ? `\n\n${playerName}, all eyes are on you.` : "";
   const roleAdjustedIntro = intro.replaceAll("{{role}}", factionTitle);
 
   return {
-    dm_narration: `${roleAdjustedIntro}${nameLine}${factionLine ? `\n\n${factionLine}` : ""}\n\n${quirkLine}`,
+    dm_narration: `${roleAdjustedIntro}${nameLine}${factionLine ? `\n\n${factionLine}` : ""}\n\n${quirkLine}\n\n${objectiveLine}`,
     companions_pre: [],
     companions_post: [],
   };

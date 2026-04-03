@@ -3,6 +3,7 @@ const { getDmSystemPrompt } = require("../prompts/characters");
 const XAI_API_URL = process.env.XAI_API_URL || "https://api.x.ai/v1/chat/completions";
 const XAI_MODEL = process.env.XAI_MODEL || "grok-3-mini";
 const XAI_DEBUG = process.env.XAI_DEBUG === "true";
+const XAI_LOG_REQUEST = process.env.XAI_LOG_REQUEST === "true";
 
 const mockTurnResponse = {
   dm_narration: "Test narration from DM",
@@ -48,6 +49,11 @@ function extractFirstJsonObject(rawText) {
       jsonText.replace(/("text"\s*:\s*"(?:(?:\\.)|[^"\\])*")\s*(\])/g, "$1}$2")
     );
 
+    // Missing opening object after comma inside arrays:
+    // ...},{"name":"A"...  (valid) vs ...},"name":"A"... (invalid)
+    variants.add(jsonText.replace(/}\s*,\s*"name"\s*:/g, '},{"name":'));
+    variants.add(jsonText.replace(/}\s*"name"\s*:/g, '},{"name":'));
+
     // Remove trailing commas before object/array close.
     variants.add(jsonText.replace(/,\s*([}\]])/g, "$1"));
 
@@ -55,6 +61,8 @@ function extractFirstJsonObject(rawText) {
     variants.add(
       jsonText
         .replace(/("text"\s*:\s*"(?:(?:\\.)|[^"\\])*")\s*(\])/g, "$1}$2")
+        .replace(/}\s*,\s*"name"\s*:/g, '},{"name":')
+        .replace(/}\s*"name"\s*:/g, '},{"name":')
         .replace(/,\s*([}\]])/g, "$1")
     );
 
@@ -122,7 +130,15 @@ function extractFirstJsonObject(rawText) {
             const parsed = JSON.parse(chunk);
             candidates.push({ parsed, score: scoreCandidate(parsed), length: chunk.length, start: i });
           } catch {
-            // Ignore invalid chunk and continue scanning for later valid JSON.
+            const repairedChunk = attemptCommonJsonRepairs(chunk);
+            if (repairedChunk) {
+              candidates.push({
+                parsed: repairedChunk,
+                score: scoreCandidate(repairedChunk),
+                length: chunk.length,
+                start: i,
+              });
+            }
           }
           break;
         }
@@ -461,6 +477,9 @@ async function generateTurnResponse({ gameState, action }) {
     "item_changes format: [{ name: string, delta: number, reason: string }].",
     "Use positive item delta for gains (example: +3 wood) and negative for usage/loss (example: -3 wood).",
     "Only include item_changes when item quantities actually change this turn.",
+    "Whenever item_changes is non-empty, explain each change clearly: what was used/gained/lost, how it was used, and why it changed now.",
+    "Each item_changes.reason must be specific and actionable (not vague text like 'used item').",
+    "If item usage affects scene continuity, briefly mention that usage in dm_narration so the transition makes sense.",
     "delta should be small (usually between -10 and +10).",
     "Only include trust_changes for companions whose trust should change this turn.",
     "energy_change format: { delta: number, effort: 'low'|'medium'|'high', reason: string }.",
@@ -496,6 +515,9 @@ async function generateTurnResponse({ gameState, action }) {
     "If a companion has hp <= 2 or energy <= 2 and the requested action would likely make them pass out, they may refuse.",
     "Refusal tone must reflect trust: high trust = polite/protective refusal, low trust = rude/hostile refusal.",
     "Keep language clean and suitable for all ages. No profanity.",
+    "Campaign objective (always prioritize in scene progression): Explore a creepy volcanic island full of hidden treasure, dangerous traps, and hostile monsters.",
+    "Story direction rule: keep introducing discoveries, threats, and clues that pull the party deeper into volcano-island exploration rather than random wandering.",
+    "Progression rule: when appropriate, present meaningful leads toward treasure sites, trap zones, monster lairs, ancient ruins, and the volcano interior.",
     `Player faction: ${playerFaction}`,
     `Player quirk: ${playerQuirk}`,
     `Current player energy: ${currentEnergy}/20`,
@@ -512,12 +534,17 @@ async function generateTurnResponse({ gameState, action }) {
   const payload = {
     model: XAI_MODEL,
     temperature: 0.7,
+    "max_output_tokens": 453101,
     // input character limit if needed example max_tokens: 8192
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
   };
+
+  if (XAI_LOG_REQUEST) {
+    console.log("[grok:request]", JSON.stringify(payload));
+  }
 
   try {
     const response = await fetch(XAI_API_URL, {

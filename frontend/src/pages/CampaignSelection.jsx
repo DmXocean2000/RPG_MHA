@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 
 const DM_OPTIONS = {
@@ -164,6 +164,14 @@ export default function CampaignSelectionPage() {
         <p className="mt-2 text-sm text-gray-400">
           Choose your DM. The other 3 will be your companions for this mission.
         </p>
+        <div className="mt-2 flex flex-wrap items-center gap-4">
+          <Link to="/" className="text-xs text-indigo-300 hover:text-indigo-200">
+            Back to Welcome
+          </Link>
+          <Link to="/basics" className="text-xs text-indigo-300 hover:text-indigo-200">
+            What is D&D?
+          </Link>
+        </div>
         {!selectedQuirk && (
           <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
             Quirk not selected yet. Go back and pick a quirk before starting.
