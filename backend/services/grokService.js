@@ -4,6 +4,8 @@ const XAI_API_URL = process.env.XAI_API_URL || "https://api.x.ai/v1/chat/complet
 const XAI_MODEL = process.env.XAI_MODEL || "grok-3-mini";
 const XAI_DEBUG = process.env.XAI_DEBUG === "true";
 const XAI_LOG_REQUEST = process.env.XAI_LOG_REQUEST === "true";
+const TURN_RESPONSE_SCHEMA =
+  "{ dm_narration: string, companions_pre: [{name,text}], companions_post: [{name,text}], dice_roll: { type, dc, result } | null, trust_changes: [{ name, delta, reason }], health_changes: [{ target: 'player'|'companion', name?: string, delta: number, reason: string }], companion_energy_changes: [{ name: string, delta: number, reason: string }], energy_change: { delta: number, effort: 'low'|'medium'|'high', reason: string }, item_changes: [{ name, delta, reason }] }";
 
 const mockTurnResponse = {
   dm_narration: "Test narration from DM",
@@ -328,6 +330,63 @@ function buildMeta(source, details = {}) {
   };
 }
 
+async function requestJsonRepair({ apiKey, systemPrompt, invalidContent }) {
+  const repairPayload = {
+    model: XAI_MODEL,
+    temperature: 0.1,
+    max_output_tokens: 2048,
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [
+          "You previously returned malformed JSON for a turn response.",
+          "Return ONLY valid JSON. No markdown, no prose, no code fences.",
+          `Use this exact schema and include all keys: ${TURN_RESPONSE_SCHEMA}`,
+          "Preserve the original intent, values, and tone where possible, but fix all syntax and shape issues.",
+          `Malformed content to repair:\n${invalidContent}`,
+        ].join("\n"),
+      },
+    ],
+  };
+
+  const response = await fetch(XAI_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(repairPayload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return {
+      repaired: null,
+      parseError: `repair_http_${response.status}`,
+      meta: { status: response.status, errorPreview: String(errorText || "").slice(0, 500) },
+    };
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content ?? "";
+  const { parsed, parseError } = extractFirstJsonObject(content);
+  const { normalized, errors } = normalizeTurnResponse(parsed, content);
+  if (!parseError) {
+    return {
+      repaired: normalized,
+      parseError: null,
+      meta: { normalizationErrors: errors },
+    };
+  }
+
+  return {
+    repaired: null,
+    parseError,
+    meta: { contentPreview: String(content || "").slice(0, 800) },
+  };
+}
+
 function trustBehaviorForScore(trustScore) {
   const trust = Number.isFinite(Number(trustScore)) ? Number(trustScore) : 50;
   if (trust >= 80) {
@@ -462,7 +521,7 @@ async function generateTurnResponse({ gameState, action }) {
   const currentEnergy = Number.isFinite(Number(gameState?.player?.energy)) ? Number(gameState.player.energy) : 20;
   const userPrompt = [
     "Return ONLY JSON. Always include ALL keys exactly in this schema (never omit keys):",
-    "{ dm_narration: string, companions_pre: [{name,text}], companions_post: [{name,text}], dice_roll: { type, dc, result } | null, trust_changes: [{ name, delta, reason }], health_changes: [{ target: 'player'|'companion', name?: string, delta: number, reason: string }], companion_energy_changes: [{ name: string, delta: number, reason: string }], energy_change: { delta: number, effort: 'low'|'medium'|'high', reason: string }, item_changes: [{ name, delta, reason }] }",
+    TURN_RESPONSE_SCHEMA,
     "If no roll is needed, set dice_roll to null.",
     "If no trust/health/item changes, return empty arrays for those fields.",
     "If companions do meaningful work (scouting, combat, gathering, carrying), include companion_energy_changes with signed deltas per companion.",
@@ -514,6 +573,8 @@ async function generateTurnResponse({ gameState, action }) {
     "Companion low-condition refusal rule (must follow):",
     "If a companion has hp <= 2 or energy <= 2 and the requested action would likely make them pass out, they may refuse.",
     "Refusal tone must reflect trust: high trust = polite/protective refusal, low trust = rude/hostile refusal.",
+    "Formatting rule: output must be syntactically valid JSON with balanced braces/brackets and double-quoted keys/strings.",
+    "Formatting rule: do not wrap JSON in markdown code fences.",
     "Keep language clean and suitable for all ages. No profanity.",
     "Campaign objective (always prioritize in scene progression): Explore a creepy volcanic island full of hidden treasure, dangerous traps, and hostile monsters.",
     "Story direction rule: keep introducing discoveries, threats, and clues that pull the party deeper into volcano-island exploration rather than random wandering.",
@@ -588,21 +649,41 @@ async function generateTurnResponse({ gameState, action }) {
     }
 
     if (typeof content === "string" && content.trim()) {
+      const repairAttempt = await requestJsonRepair({
+        apiKey,
+        systemPrompt,
+        invalidContent: content.trim(),
+      });
+
+      if (repairAttempt.repaired) {
+        return {
+          response: repairAttempt.repaired,
+          source: "grok_repaired",
+          meta: buildMeta("grok_repaired", {
+            parseError,
+            repairParseError: null,
+            repairMeta: repairAttempt.meta,
+          }),
+        };
+      }
+
       return {
         response: {
-          dm_narration: content.trim(),
+          dm_narration: "Aizawa sighs. \"Formatting glitch on my end. Repeat that action and I will resolve it cleanly.\"",
           companions_pre: [],
           companions_post: [],
           dice_roll: null,
           trust_changes: [],
           health_changes: [],
           companion_energy_changes: [],
-          energy_change: { delta: 0, effort: "low", reason: "No significant energy change." },
+          energy_change: { delta: 0, effort: "low", reason: "Turn formatting failed; no in-world effort applied." },
           item_changes: [],
         },
         source: "grok_text_fallback",
         meta: buildMeta("grok_text_fallback", {
           parseError,
+          repairParseError: repairAttempt.parseError,
+          repairMeta: repairAttempt.meta,
         }),
       };
     }
