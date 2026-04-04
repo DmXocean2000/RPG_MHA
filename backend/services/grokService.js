@@ -5,12 +5,104 @@ const {
   XAI_DEBUG,
   XAI_LOG_REQUEST,
   AI_MAX_TOKENS,
+  OPENAI_API_KEY,
+  OPENAI_API_URL,
+  OPENAI_REPAIR_MODEL,
   mockTurnResponse,
 } = require("./grok/constants");
 const { extractFirstJsonObject, normalizeTurnResponse } = require("./grok/normalization");
 const { buildTurnUserPrompt } = require("./grok/promptBuilder");
 const { requestJsonRepair, requestOpenAiJsonRepair } = require("./grok/repairClients");
 const { buildMeta } = require("./grok/meta");
+
+async function requestOpenAiTurnFallback({ systemPrompt, userPrompt, upstreamStatus, upstreamErrorPreview }) {
+  if (!OPENAI_API_KEY) {
+    return {
+      response: null,
+      source: "openai_fallback_unavailable",
+      meta: {
+        reason: "openai_api_key_missing",
+        upstreamStatus,
+        upstreamErrorPreview,
+      },
+    };
+  }
+
+  const payload = {
+    model: OPENAI_REPAIR_MODEL,
+    temperature: 0.7,
+    max_tokens: AI_MAX_TOKENS,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  };
+
+  try {
+    const response = await fetch(OPENAI_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        response: null,
+        source: "openai_fallback_http_error",
+        meta: {
+          status: response.status,
+          errorPreview: String(errorText || "").slice(0, 500),
+          upstreamStatus,
+          upstreamErrorPreview,
+        },
+      };
+    }
+
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content ?? "";
+    const { parsed, parseError } = extractFirstJsonObject(content);
+    const { normalized, errors: normalizationErrors } = normalizeTurnResponse(parsed, content);
+
+    if (!parseError) {
+      const source = normalizationErrors.length > 0 ? "openai_fallback_normalized" : "openai_fallback";
+      return {
+        response: normalized,
+        source,
+        meta: {
+          parseError: null,
+          normalizationErrors,
+          upstreamStatus,
+          upstreamErrorPreview,
+        },
+      };
+    }
+
+    return {
+      response: null,
+      source: "openai_fallback_parse_error",
+      meta: {
+        parseError,
+        contentPreview: String(content || "").slice(0, 800),
+        upstreamStatus,
+        upstreamErrorPreview,
+      },
+    };
+  } catch (error) {
+    return {
+      response: null,
+      source: "openai_fallback_exception",
+      meta: {
+        errorMessage: error?.message || "unknown_exception",
+        upstreamStatus,
+        upstreamErrorPreview,
+      },
+    };
+  }
+}
 
 async function generateTurnResponse({ gameState, action }) {
   const apiKey = process.env.XAI_API_KEY;
@@ -53,12 +145,27 @@ async function generateTurnResponse({ gameState, action }) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[grok:error] status=${response.status} body=${errorText}`);
+      const fallback = await requestOpenAiTurnFallback({
+        systemPrompt,
+        userPrompt,
+        upstreamStatus: response.status,
+        upstreamErrorPreview: String(errorText || "").slice(0, 500),
+      });
+      if (fallback.response) {
+        return {
+          response: fallback.response,
+          source: fallback.source,
+          meta: buildMeta(fallback.source, fallback.meta),
+        };
+      }
       return {
         response: structuredClone(mockTurnResponse),
         source: "mock_api_error",
         meta: buildMeta("mock_api_error", {
           status: response.status,
           errorPreview: String(errorText || "").slice(0, 500),
+          openAiFallbackSource: fallback.source,
+          openAiFallbackMeta: fallback.meta,
         }),
       };
     }
@@ -69,7 +176,7 @@ async function generateTurnResponse({ gameState, action }) {
     const contentTrimmed = typeof content === "string" ? content.trim() : "";
 
     // Always pass model output through OpenAI normalizer first when available.
-    // This makes JSON shape/formatting consistent even when Grok output is already "mostly valid".
+    // This keeps turn-response shape/formatting consistent even when Grok output is already "mostly valid".
     if (contentTrimmed) {
       const openAiPrimaryAttempt = await requestOpenAiJsonRepair({
         systemPrompt,
@@ -184,11 +291,26 @@ async function generateTurnResponse({ gameState, action }) {
     };
   } catch (error) {
     console.error("[grok:exception] Failed to call Grok API", error);
+    const fallback = await requestOpenAiTurnFallback({
+      systemPrompt,
+      userPrompt,
+      upstreamStatus: "exception",
+      upstreamErrorPreview: error?.message || "unknown_exception",
+    });
+    if (fallback.response) {
+      return {
+        response: fallback.response,
+        source: fallback.source,
+        meta: buildMeta(fallback.source, fallback.meta),
+      };
+    }
     return {
       response: structuredClone(mockTurnResponse),
       source: "mock_exception",
       meta: buildMeta("mock_exception", {
         errorMessage: error?.message || "unknown_exception",
+        openAiFallbackSource: fallback.source,
+        openAiFallbackMeta: fallback.meta,
       }),
     };
   }

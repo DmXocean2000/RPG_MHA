@@ -10,8 +10,36 @@ const OPENAI_REPAIR_ENABLED = process.env.OPENAI_REPAIR_ENABLED !== "false";
 const OPENAI_REPAIR_MODEL = process.env.OPENAI_REPAIR_MODEL || "gpt-5-mini";
 const OPENAI_API_URL = process.env.OPENAI_API_URL || "https://api.openai.com/v1/chat/completions";
 
-const TURN_RESPONSE_SCHEMA =
-  "{ dm_narration: string, companions_pre: [{name,text}], companions_post: [{name,text}], dice_roll: { type, dc, result } | null, trust_changes: [{ name, delta, reason }], health_changes: [{ target: 'player'|'companion', name?: string, delta: number, reason: string }], companion_energy_changes: [{ name: string, delta: number, reason: string }], energy_change: { delta: number, effort: 'low'|'medium'|'high', reason: string }, item_changes: [{ name, delta, reason }] }";
+const TURN_RESPONSE_SCHEMA = `turn_response:
+  dm_narration: string
+  companions_pre:
+    - name: string
+      text: string
+  companions_post:
+    - name: string
+      text: string
+  dice_roll: null | { type: string, dc: number, result: number }
+  trust_changes:
+    - name: string
+      delta: number
+      reason: string
+  health_changes:
+    - target: player|companion
+      name: optional-string
+      delta: number
+      reason: string
+  companion_energy_changes:
+    - name: string
+      delta: number
+      reason: string
+  energy_change:
+    delta: number
+    effort: low|medium|high
+    reason: string
+  item_changes:
+    - name: string
+      delta: number
+      reason: string`;
 
 const mockTurnResponse = {
   dm_narration: "Test narration from DM",

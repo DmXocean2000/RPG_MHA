@@ -20,9 +20,9 @@ async function requestJsonRepair({ apiKey, systemPrompt, invalidContent }) {
       {
         role: "user",
         content: [
-          "You previously returned malformed JSON for a turn response.",
-          "Return ONLY valid JSON. No markdown, no prose, no code fences.",
-          `Use this exact schema and include all keys: ${TURN_RESPONSE_SCHEMA}`,
+          "You previously returned malformed YAML for a turn response.",
+          "Return ONLY valid YAML. No markdown, no prose, no code fences.",
+          `Use this exact schema and include all sections: ${TURN_RESPONSE_SCHEMA}`,
           "Preserve the original intent, values, and tone where possible, but fix all syntax and shape issues.",
           `Malformed content to repair:\n${invalidContent}`,
         ].join("\n"),
@@ -82,21 +82,21 @@ async function requestOpenAiJsonRepair({ systemPrompt, invalidContent }) {
     messages: [
       {
         role: "system",
-        content: `${systemPrompt}\n\nYou are now a strict JSON repair engine. Return only valid JSON.`,
+        content: `${systemPrompt}\n\nYou are now a strict YAML repair engine. Return only valid YAML.`,
       },
       {
         role: "user",
         content: [
-          "Repair the malformed turn-response JSON below.",
-          "DO NOT CHANGE THE TEXT OF THE JSON. ONLY FIX THE SYNTAX AND SHAPE.",
+          "Repair the malformed turn-response YAML below.",
+          "DO NOT CHANGE THE TEXT CONTENT. ONLY FIX YAML SYNTAX AND SHAPE.",
           "DO NOT ADD ANY NEW KEYS OR VALUES. ONLY FIX THE SYNTAX AND SHAPE.",
           "DO NOT REMOVE ANY KEYS OR VALUES. ONLY FIX THE SYNTAX AND SHAPE.",
           "DO NOT CHANGE THE ORDER OF THE KEYS OR VALUES. ONLY FIX THE SYNTAX AND SHAPE.",
           "DO NOT CHANGE THE ORDER OF THE ARRAYS. ONLY FIX THE SYNTAX AND SHAPE.",
           "DO NOT CHANGE THE ORDER OF THE OBJECTS. ONLY FIX THE SYNTAX AND SHAPE.",
           "DO NOT CHANGE THE ORDER OF THE ARRAYS. ONLY FIX THE SYNTAX AND SHAPE.",
-          "Return ONLY valid JSON. No markdown, no prose, no code fences.",
-          `Use this exact schema and include all keys: ${TURN_RESPONSE_SCHEMA}`,
+          "Return ONLY valid YAML. No markdown, no prose, no code fences.",
+          `Use this exact schema and include all sections: ${TURN_RESPONSE_SCHEMA}`,
           "Preserve intent, values, and tone while fixing syntax/shape.",
           `Malformed content to repair:\n${invalidContent}`,
         ].join("\n"),

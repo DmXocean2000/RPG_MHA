@@ -1,5 +1,229 @@
+const yaml = require("js-yaml");
+
+function scoreTurnCandidate(obj) {
+  if (!obj || typeof obj !== "object") return 0;
+  const nested = obj.response && typeof obj.response === "object" ? obj.response : {};
+  const merged = { ...obj, ...nested };
+  let score = 0;
+  if (typeof merged.dm_narration === "string" || typeof merged.dmNarration === "string") score += 3;
+  if (Array.isArray(merged.companions_pre) || Array.isArray(merged.companionsPre)) score += 2;
+  if (Array.isArray(merged.companions_post) || Array.isArray(merged.companionsPost)) score += 2;
+  if (Array.isArray(merged.trust_changes) || Array.isArray(merged.trustChanges)) score += 1;
+  if ((merged.energy_change && typeof merged.energy_change === "object") || (merged.energyChange && typeof merged.energyChange === "object")) {
+    score += 1;
+  }
+  if (Array.isArray(merged.item_changes) || Array.isArray(merged.itemChanges)) score += 1;
+  if (Object.prototype.hasOwnProperty.call(merged, "dice_roll") || Object.prototype.hasOwnProperty.call(merged, "diceRoll")) score += 1;
+  if (merged.response && typeof merged.response === "object") score += 1;
+  return score;
+}
+
+function decodeXmlEntities(value) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function normalizeXmlText(value) {
+  if (typeof value !== "string") return "";
+  return decodeXmlEntities(value).replace(/\s+/g, " ").trim();
+}
+
+function extractTagText(xml, tag) {
+  if (typeof xml !== "string") return "";
+  const regex = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const match = xml.match(regex);
+  return match ? normalizeXmlText(match[1]) : "";
+}
+
+function extractTagBlocks(xml, tag) {
+  if (typeof xml !== "string") return [];
+  const regex = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "gi");
+  return Array.from(xml.matchAll(regex)).map((entry) => entry[1]);
+}
+
+function parseCompanionList(xml, sectionTag) {
+  const sectionBlocks = extractTagBlocks(xml, sectionTag);
+  if (sectionBlocks.length === 0) return [];
+  return sectionBlocks
+    .flatMap((section) => extractTagBlocks(section, "companion"))
+    .map((companionBlock) => ({
+      name: extractTagText(companionBlock, "name"),
+      text: extractTagText(companionBlock, "text"),
+    }))
+    .filter((entry) => entry.name || entry.text);
+}
+
+function parseChangeList(xml, sectionTag) {
+  const sectionBlocks = extractTagBlocks(xml, sectionTag);
+  if (sectionBlocks.length === 0) return [];
+  return sectionBlocks
+    .flatMap((section) => extractTagBlocks(section, "change"))
+    .map((changeBlock) => ({
+      target: extractTagText(changeBlock, "target"),
+      name: extractTagText(changeBlock, "name"),
+      delta: extractTagText(changeBlock, "delta"),
+      reason: extractTagText(changeBlock, "reason"),
+    }))
+    .filter((entry) => entry.name || entry.delta || entry.reason || entry.target);
+}
+
+function parseDiceRoll(xml) {
+  const diceBlocks = extractTagBlocks(xml, "dice_roll");
+  if (diceBlocks.length === 0) return null;
+  const block = diceBlocks[0];
+  const compact = normalizeXmlText(block).toLowerCase();
+  if (!compact || compact === "null") return null;
+
+  return {
+    type: extractTagText(block, "type"),
+    dc: extractTagText(block, "dc"),
+    result: extractTagText(block, "result"),
+  };
+}
+
+function parseTurnResponseXml(xmlChunk) {
+  if (typeof xmlChunk !== "string" || !xmlChunk.trim()) return null;
+
+  const parsed = {
+    dm_narration: extractTagText(xmlChunk, "dm_narration"),
+    companions_pre: parseCompanionList(xmlChunk, "companions_pre"),
+    companions_post: parseCompanionList(xmlChunk, "companions_post"),
+    dice_roll: parseDiceRoll(xmlChunk),
+    trust_changes: parseChangeList(xmlChunk, "trust_changes").map((entry) => ({
+      name: entry.name,
+      delta: entry.delta,
+      reason: entry.reason,
+    })),
+    health_changes: parseChangeList(xmlChunk, "health_changes").map((entry) => ({
+      target: entry.target,
+      name: entry.name,
+      delta: entry.delta,
+      reason: entry.reason,
+    })),
+    companion_energy_changes: parseChangeList(xmlChunk, "companion_energy_changes").map((entry) => ({
+      name: entry.name,
+      delta: entry.delta,
+      reason: entry.reason,
+    })),
+    item_changes: parseChangeList(xmlChunk, "item_changes").map((entry) => ({
+      name: entry.name,
+      delta: entry.delta,
+      reason: entry.reason,
+    })),
+    energy_change: (() => {
+      const energyBlocks = extractTagBlocks(xmlChunk, "energy_change");
+      if (energyBlocks.length === 0) return null;
+      const block = energyBlocks[0];
+      return {
+        delta: extractTagText(block, "delta"),
+        effort: extractTagText(block, "effort"),
+        reason: extractTagText(block, "reason"),
+      };
+    })(),
+  };
+
+  const hasKnownField =
+    parsed.dm_narration ||
+    parsed.companions_pre.length > 0 ||
+    parsed.companions_post.length > 0 ||
+    parsed.trust_changes.length > 0 ||
+    parsed.health_changes.length > 0 ||
+    parsed.companion_energy_changes.length > 0 ||
+    parsed.item_changes.length > 0 ||
+    parsed.energy_change ||
+    parsed.dice_roll;
+
+  return hasKnownField ? parsed : null;
+}
+
+function extractFirstXmlObject(rawText) {
+  if (typeof rawText !== "string") return { parsed: null, parseError: "content_not_string" };
+  const text = rawText.trim();
+  const rootMatches = Array.from(text.matchAll(/<turn_response\b[^>]*>[\s\S]*?<\/turn_response>/gi));
+  const candidates = rootMatches.map((entry) => entry[0]).filter(Boolean);
+
+  if (candidates.length === 0) {
+    return { parsed: null, parseError: "xml_turn_response_not_found" };
+  }
+
+  const parsedCandidates = candidates
+    .map((chunk) => ({ chunk, parsed: parseTurnResponseXml(chunk) }))
+    .filter((entry) => entry.parsed);
+
+  if (parsedCandidates.length === 0) {
+    return { parsed: null, parseError: "xml_parse_failed" };
+  }
+
+  parsedCandidates.sort((a, b) => b.chunk.length - a.chunk.length);
+  return { parsed: parsedCandidates[0].parsed, parseError: null };
+}
+
+function extractTurnResponseFromYamlDoc(doc) {
+  if (!doc || typeof doc !== "object") return null;
+  if (doc.turn_response && typeof doc.turn_response === "object") return doc.turn_response;
+  if (doc.response && typeof doc.response === "object") {
+    if (doc.response.turn_response && typeof doc.response.turn_response === "object") return doc.response.turn_response;
+    return doc.response;
+  }
+  return doc;
+}
+
+function extractFirstYamlObject(rawText) {
+  if (typeof rawText !== "string") return { parsed: null, parseError: "content_not_string" };
+  const text = rawText.trim();
+  if (!text) return { parsed: null, parseError: "yaml_empty_content" };
+
+  const candidates = new Set([text]);
+  const fencedMatch = text.match(/```(?:yaml|yml)?\s*([\s\S]*?)```/i);
+  if (fencedMatch?.[1]) candidates.add(fencedMatch[1].trim());
+  const turnIdx = text.toLowerCase().indexOf("turn_response:");
+  if (turnIdx >= 0) candidates.add(text.slice(turnIdx).trim());
+
+  const parsedCandidates = [];
+  for (const candidateText of candidates) {
+    const docs = [];
+    try {
+      yaml.loadAll(candidateText, (doc) => docs.push(doc));
+    } catch {
+      continue;
+    }
+    for (const doc of docs) {
+      const parsed = extractTurnResponseFromYamlDoc(doc);
+      if (parsed && typeof parsed === "object") {
+        parsedCandidates.push({
+          parsed,
+          score: scoreTurnCandidate(parsed),
+          length: candidateText.length,
+        });
+      }
+    }
+  }
+
+  if (parsedCandidates.length === 0) {
+    return { parsed: null, parseError: "yaml_parse_failed" };
+  }
+
+  parsedCandidates.sort((a, b) => b.score - a.score || b.length - a.length);
+  return { parsed: parsedCandidates[0].parsed, parseError: null };
+}
+
 function extractFirstJsonObject(rawText) {
   if (typeof rawText !== "string") return { parsed: null, parseError: "content_not_string" };
+  const yamlAttempt = extractFirstYamlObject(rawText);
+  if (!yamlAttempt.parseError) {
+    return yamlAttempt;
+  }
+
+  const xmlAttempt = extractFirstXmlObject(rawText);
+  if (!xmlAttempt.parseError) {
+    return xmlAttempt;
+  }
+
   const candidates = [];
   const text = rawText.trim();
   const tryParseJson = (jsonText) => {
@@ -36,29 +260,6 @@ function extractFirstJsonObject(rawText) {
     return null;
   };
 
-  const scoreCandidate = (obj) => {
-    if (!obj || typeof obj !== "object") return 0;
-    const nested = obj.response && typeof obj.response === "object" ? obj.response : {};
-    const merged = { ...obj, ...nested };
-    let score = 0;
-    if (typeof merged.dm_narration === "string" || typeof merged.dmNarration === "string") score += 3;
-    if (Array.isArray(merged.companions_pre) || Array.isArray(merged.companionsPre)) score += 2;
-    if (Array.isArray(merged.companions_post) || Array.isArray(merged.companionsPost)) score += 2;
-    if (Array.isArray(merged.trust_changes) || Array.isArray(merged.trustChanges)) score += 1;
-    if (
-      (merged.energy_change && typeof merged.energy_change === "object") ||
-      (merged.energyChange && typeof merged.energyChange === "object")
-    ) {
-      score += 1;
-    }
-    if (Array.isArray(merged.item_changes) || Array.isArray(merged.itemChanges)) score += 1;
-    if (Object.prototype.hasOwnProperty.call(merged, "dice_roll") || Object.prototype.hasOwnProperty.call(merged, "diceRoll")) {
-      score += 1;
-    }
-    if (merged.response && typeof merged.response === "object") score += 1;
-    return score;
-  };
-
   for (let i = 0; i < text.length; i += 1) {
     if (text[i] !== "{") continue;
     let depth = 0;
@@ -84,13 +285,13 @@ function extractFirstJsonObject(rawText) {
           const chunk = text.slice(i, j + 1);
           try {
             const parsed = JSON.parse(chunk);
-            candidates.push({ parsed, score: scoreCandidate(parsed), length: chunk.length, start: i });
+            candidates.push({ parsed, score: scoreTurnCandidate(parsed), length: chunk.length, start: i });
           } catch {
             const repairedChunk = attemptCommonJsonRepairs(chunk);
             if (repairedChunk) {
               candidates.push({
                 parsed: repairedChunk,
-                score: scoreCandidate(repairedChunk),
+                score: scoreTurnCandidate(repairedChunk),
                 length: chunk.length,
                 start: i,
               });

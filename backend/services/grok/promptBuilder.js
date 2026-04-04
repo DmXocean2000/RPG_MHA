@@ -6,27 +6,27 @@ function trustBehaviorForScore(trustScore) {
     return {
       tier: "supportive",
       instruction:
-        "Be clearly supportive and cooperative. They should trust the player's calls, offer help proactively, and coordinate with the team.",
+        "Be supportive and cooperative. Offer help proactively and coordinate with the team.",
     };
   }
   if (trust >= 40) {
     return {
       tier: "neutral",
       instruction:
-        "Be neutral and measured. They can cooperate, but should not be overly warm or overly hostile without clear reason.",
+        "Be neutral and measured. Cooperate pragmatically without dramatic reactions.",
     };
   }
   if (trust >= 15) {
     return {
       tier: "wary",
       instruction:
-        "Be wary and skeptical. They should question plans, hesitate, and require stronger justification before agreeing.",
+        "Be cautious and skeptical. Ask for clarification before committing to risky plans.",
     };
   }
   return {
-    tier: "hostile",
+    tier: "low-trust",
     instruction:
-      "Be openly distrustful and hostile. They should resist directions, avoid following orders, and challenge or undermine the player's leadership.",
+      "Be distant and reluctant. Prefer safer alternatives and limited participation.",
   };
 }
 
@@ -46,21 +46,21 @@ function buildCompanionTrustGuidance(gameState) {
       const behavior = trustBehaviorForScore(trust);
       const refusalStyle = isVillainFaction
         ? trust >= 40
-          ? "If refusing, be calm/direct but still mostly comply with orders unless collapse risk is high."
-          : "If refusing, be resentful or rude, but still usually comply unless collapse risk is high."
+          ? "If declining, be calm and direct."
+          : "If declining, be brief and guarded."
         : trust >= 80
-        ? "If refusing, be polite and protective."
+        ? "If declining, be polite and protective."
         : trust >= 40
-        ? "If refusing, be calm and direct."
+        ? "If declining, be calm and direct."
         : trust >= 15
-        ? "If refusing, be skeptical and blunt."
-        : "If refusing, be rude or openly hostile.";
+        ? "If declining, be skeptical and blunt."
+        : "If declining, be terse and distant.";
       const criticalCondition = hp <= 2 || energy <= 2;
       const criticalRule = criticalCondition
-        ? "CRITICAL: They are near collapse. If the next action would likely make them pass out, they should refuse participation."
+        ? "CRITICAL: They are near exhaustion. If the next action is too demanding, they should decline."
         : "Not currently critical.";
       const villainComplianceRule = isVillainFaction
-        ? "Villain leadership rule: companions generally comply with direct orders, even with low trust, but tone should be resentful when trust is low."
+        ? "Villain route note: companions often cooperate, but tone can remain guarded when trust is low."
         : "";
       return `- ${name}: trust=${trust} (${behavior.tier}), hp=${hp}/20, energy=${energy}/20 -> ${behavior.instruction} ${criticalRule} ${refusalStyle} ${villainComplianceRule}`.trim();
     })
@@ -73,7 +73,7 @@ function buildPlayerQuirkGuidance(gameState) {
     hardening:
       "Hardening: Major durability boost against physical danger. Tradeoff is reduced speed/agility and poor fine motor control while active; prolonged use drains stamina.",
     half_cold_half_hot:
-      "Half-Cold Half-Hot: Versatile fire/ice utility for survival and combat. Tradeoffs include friendly-fire risk, control challenges under stress, self-injury risk from overuse, and environmental resource damage.",
+      "Half-Cold Half-Hot: Versatile fire/ice utility for survival and defense. Tradeoffs include control challenges under stress and environmental side effects.",
     fiber_master:
       "Fiber Master: Excellent at crafting/manipulating ropes, nets, bindings, and fiber tools from available materials. Tradeoffs: requires existing fibers, high concentration, and causes fatigue with extended use.",
     quirkless: "Quirkless: No superhuman ability. Resolve actions through planning, skill, and available tools only.",
@@ -94,7 +94,7 @@ function buildCompanionCapabilityGuidance(gameState) {
     },
     midoriya: {
       strengths: ["problem-solving", "crisis management", "high quirk power potential"],
-      weaknesses: ["cooking (high failure/food poisoning risk)", "quirk overuse self-injury risk", "lower durability"],
+      weaknesses: ["cooking (high failure risk)", "quirk overuse can cause performance drop", "lower durability"],
     },
     iida: {
       strengths: ["speed", "perception", "scouting/recon"],
@@ -125,17 +125,16 @@ function buildTurnUserPrompt({ gameState, action }) {
   const currentLocation = String(gameState?.location || "beach");
 
   return [
-    "Return ONLY JSON. Always include ALL keys exactly in this schema (never omit keys):",
+    "Return ONLY YAML. Include all required sections from this schema:",
     TURN_RESPONSE_SCHEMA,
-    "If no roll is needed, set dice_roll to null.",
-    "If no trust/health/item changes, return empty arrays for those fields.",
+    "If no roll is needed, set dice_roll: null.",
+    "If no trust/health/item changes, return empty arrays for those sections.",
     "If companions do meaningful work (scouting, combat, gathering, carrying), include companion_energy_changes with signed deltas per companion.",
-    "If no energy change, return energy_change with delta 0, effort 'low', and clear reason.",
+    "If no energy change, return energy_change with delta 0, effort low, and clear reason.",
     "If dice_roll is used, it must be: { type: string, dc: number, result: number }.",
-    "Use companion entries shaped as: { name: string, text: string }.",
+    "Use companion entries shaped as: - name: string, text: string.",
     "trust_changes format: [{ name: string, delta: number, reason: string }].",
     "health_changes format: [{ target: 'player'|'companion', name?: string, delta: number, reason: string }].",
-    "For companion health changes, include companion name.",
     "companion_energy_changes format: [{ name: string, delta: number, reason: string }].",
     "Use negative deltas for fatigue/spending effort, positive deltas for recovery.",
     "item_changes format: [{ name: string, delta: number, reason: string }].",
@@ -147,46 +146,46 @@ function buildTurnUserPrompt({ gameState, action }) {
     "delta should be small (usually between -10 and +10).",
     "Only include trust_changes for companions whose trust should change this turn.",
     "energy_change format: { delta: number, effort: 'low'|'medium'|'high', reason: string }.",
-    "Use negative delta for energy spent (example: building a tent often costs about -5).",
+    "Use negative delta for effort spent (example: building a tent often costs about -5).",
     "Use positive delta only for meaningful recovery actions (for example resting).",
     "For actions with physical effort, include energy_change and give a concrete reason.",
     "When dice_roll is present, still provide base energy_change; the server may adjust final cost by roll outcome.",
-    "For injuries or healing, include health_changes with signed deltas.",
+    "For setbacks or recovery, include health_changes with signed deltas.",
     "When the action crafts/uses resources (like fire-making), include the item usage in item_changes.",
-    "Companion capability mechanics (must apply in outcomes and narration):",
+    "Companion capability notes (apply in outcomes and narration):",
     "- Bakugo excels at hunting/combat/cooking/heavy tasks; poor diplomacy/patience; teamwork friction with Midoriya when stressed.",
-    "- Midoriya excels at analysis and crisis planning; poor cooking (serious failure/food poisoning risk), quirk overuse can self-injure.",
+    "- Midoriya excels at analysis and crisis planning; poor cooking under pressure; overuse causes fatigue.",
     "- Iida excels at scouting/speed/perception; weaker at brute-force combat and chaotic improvisation.",
     "- Aizawa excels at tactics/survival/threat control; lower speed and stamina for prolonged heavy tasks.",
-    "Task difficulty adjustment rule:",
+    "Task difficulty guidance:",
     "- If assigned companion task matches strengths, resolve more favorably (roughly easier by one difficulty step).",
     "- If task matches weaknesses, resolve less favorably (roughly harder by one difficulty step).",
-    "Synergy/conflict rule:",
+    "Synergy guidance:",
     "- Bakugo + Midoriya on the same precision/teamwork task should add friction unless both trust levels are high.",
     "- Midoriya cooking attempts should usually be risky unless tightly supervised by a better cook.",
-    "Faction mechanic rules:",
+    "Faction guidance:",
     "- If player faction is villain: reflect resilience and endurance (slightly less severe stamina/injury outcomes where sensible).",
-    "- If player faction is villain: companions should generally obey direct orders unless obeying would likely make them pass out now.",
-    "- Villain companion compliance can be resentful, cold, or rude, but still cooperative in execution.",
-    "- For villain intimidation/deception attempts, lean toward stronger outcomes when plausible.",
-    "Companion trust behavior rules (must follow):",
+    "- If player faction is villain: companions usually cooperate unless too exhausted for the task.",
+    "- For villain deception or pressure attempts, allow stronger outcomes when plausible.",
+    "Companion trust behavior guidance:",
     "- 80-100: supportive -> helpful, cooperative, and more willing to follow player direction.",
-    "- 40-79: neutral -> steady, practical, neither strongly supportive nor hostile.",
+    "- 40-79: neutral -> steady and practical.",
     "- 15-39: wary -> skeptical, cautious, and slower to agree.",
-    "- 0-14: hostile -> distrustful, resistant, does not reliably follow directions, and may challenge the player.",
+    "- 0-14: low-trust -> distant, reluctant, and less willing to take risks.",
     "Apply these trust rules consistently in companion dialogue and reactions.",
-    "Companion low-condition refusal rule (must follow):",
-    "If a companion has hp <= 2 or energy <= 2 and the requested action would likely make them pass out, they may refuse.",
-    "Refusal tone must reflect trust: high trust = polite/protective refusal, low trust = rude/hostile refusal.",
-    "Formatting rule: output must be syntactically valid JSON with balanced braces/brackets and double-quoted keys/strings.",
-    "Formatting rule: do not wrap JSON in markdown code fences.",
-    "Keep language clean and suitable for all ages. No profanity.",
-    "Location continuity rule (must follow): Treat current location as persistent state. Do not move the party to a different area unless the player action explicitly indicates travel.",
-    "Location continuity rule (must follow): If the player says they are already at a location (example: 'while at the volcano'), stay there and resolve the action in that location.",
+    "Companion low-condition rule:",
+    "If a companion has hp <= 2 or energy <= 2 and the requested action is too demanding, they may decline.",
+    "Decline tone should reflect trust: high trust = polite/protective, low trust = brief/distant.",
+    "Formatting rule: output must be syntactically valid YAML.",
+    "Formatting rule: use a single top-level key named turn_response.",
+    "Formatting rule: do not wrap YAML in markdown code fences.",
+    "Keep language clean and suitable for all ages. No profanity. Avoid graphic content.",
+    "Location continuity rule: Treat current location as persistent state. Do not move the party to a different area unless the player action explicitly indicates travel.",
+    "Location continuity rule: If the player says they are already at a location (example: 'while at the volcano'), stay there and resolve the action in that location.",
     "Location progression rule: you may introduce new sub-locations when the player travels (example: obsidian tunnel, ruined shrine, lava bridge), but keep continuity with the current location context.",
-    "Campaign objective (always prioritize in scene progression): Explore a creepy volcanic island full of hidden treasure, dangerous traps, and hostile monsters.",
-    "Story direction rule: keep introducing discoveries, threats, and clues that pull the party deeper into volcano-island exploration rather than random wandering.",
-    "Progression rule: when appropriate, present meaningful leads toward treasure sites, trap zones, monster lairs, ancient ruins, and the volcano interior.",
+    "Campaign objective: Explore a volcanic island with hidden treasure, environmental hazards, mysteries, and challenging encounters.",
+    "Story direction rule: keep introducing discoveries, obstacles, and clues that pull the party deeper into island exploration.",
+    "Progression rule: present meaningful leads toward treasure sites, trap zones, mysterious lairs, ruins, and the volcano interior.",
     `Player faction: ${playerFaction}`,
     `Player quirk: ${playerQuirk}`,
     `Current player energy: ${currentEnergy}/20`,
