@@ -59,6 +59,10 @@ function extractFirstJsonObject(rawText) {
     // Remove trailing commas before object/array close.
     variants.add(jsonText.replace(/,\s*([}\]])/g, "$1"));
 
+    // Remove accidental doubled quote before object/array delimiters:
+    // ... "text":"value""}  -> ... "text":"value"}
+    variants.add(jsonText.replace(/""(?=\s*[}\],])/g, '"'));
+
     // Combined pass.
     variants.add(
       jsonText
@@ -66,6 +70,7 @@ function extractFirstJsonObject(rawText) {
         .replace(/}\s*,\s*"name"\s*:/g, '},{"name":')
         .replace(/}\s*"name"\s*:/g, '},{"name":')
         .replace(/,\s*([}\]])/g, "$1")
+        .replace(/""(?=\s*[}\],])/g, '"')
     );
 
     for (const variant of variants) {
