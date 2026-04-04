@@ -307,6 +307,7 @@ export default function GameScreenPage() {
     [gameState?.player?.inventory]
   );
   const companionStatus = useMemo(() => gameState?.companionStatus || [], [gameState?.companionStatus]);
+  const isGameOver = Boolean(gameState?.storyFlags?.gameOver);
 
   async function submitAction(actionText) {
     const action = actionText.trim();
@@ -395,7 +396,7 @@ export default function GameScreenPage() {
                 <button
                   key={action}
                   onClick={() => submitAction(action)}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isGameOver}
                   className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm transition hover:border-indigo-400 hover:bg-gray-700 disabled:opacity-60"
                 >
                   {action}
@@ -419,13 +420,14 @@ export default function GameScreenPage() {
                     submitAction(actionInput);
                   }
                 }}
-                placeholder="Describe your action..."
+                placeholder={isGameOver ? "Game over. Restart campaign to play again." : "Describe your action..."}
                 rows={2}
+                disabled={isSubmitting || isGameOver}
                 className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 px-4 py-3 text-sm outline-none transition focus:border-indigo-500"
               />
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isGameOver}
                 className="flex min-w-[92px] items-center justify-center rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold transition hover:bg-indigo-500 disabled:opacity-60"
               >
                 {isSubmitting ? (
@@ -438,6 +440,11 @@ export default function GameScreenPage() {
                 )}
               </button>
             </form>
+            {isGameOver && (
+              <p className="mt-2 text-sm text-amber-300">
+                Game over. This story has ended and cannot continue.
+              </p>
+            )}
             {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
           </div>
         </div>

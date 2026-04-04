@@ -519,6 +519,7 @@ async function generateTurnResponse({ gameState, action }) {
   const playerQuirk = String(gameState?.player?.quirk || "quirkless");
   const playerFaction = String(gameState?.player?.faction || "hero");
   const currentEnergy = Number.isFinite(Number(gameState?.player?.energy)) ? Number(gameState.player.energy) : 20;
+  const currentLocation = String(gameState?.location || "beach");
   const userPrompt = [
     "Return ONLY JSON. Always include ALL keys exactly in this schema (never omit keys):",
     TURN_RESPONSE_SCHEMA,
@@ -576,12 +577,16 @@ async function generateTurnResponse({ gameState, action }) {
     "Formatting rule: output must be syntactically valid JSON with balanced braces/brackets and double-quoted keys/strings.",
     "Formatting rule: do not wrap JSON in markdown code fences.",
     "Keep language clean and suitable for all ages. No profanity.",
+    "Location continuity rule (must follow): Treat current location as persistent state. Do not move the party to a different area unless the player action explicitly indicates travel.",
+    "Location continuity rule (must follow): If the player says they are already at a location (example: 'while at the volcano'), stay there and resolve the action in that location.",
+    "Location progression rule: you may introduce new sub-locations when the player travels (example: obsidian tunnel, ruined shrine, lava bridge), but keep continuity with the current location context.",
     "Campaign objective (always prioritize in scene progression): Explore a creepy volcanic island full of hidden treasure, dangerous traps, and hostile monsters.",
     "Story direction rule: keep introducing discoveries, threats, and clues that pull the party deeper into volcano-island exploration rather than random wandering.",
     "Progression rule: when appropriate, present meaningful leads toward treasure sites, trap zones, monster lairs, ancient ruins, and the volcano interior.",
     `Player faction: ${playerFaction}`,
     `Player quirk: ${playerQuirk}`,
     `Current player energy: ${currentEnergy}/20`,
+    `Current location (persistent): ${currentLocation}`,
     "Player quirk guidance (must follow):",
     playerQuirkGuidance,
     "Companion trust guidance for current state:",

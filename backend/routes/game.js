@@ -13,6 +13,109 @@ function isVillainPlayer(gameState) {
   return String(gameState?.player?.faction || "").toLowerCase().trim() === "villain";
 }
 
+function normalizeLocation(value) {
+  const raw = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!raw) return "beach";
+  return raw;
+}
+
+function cleanLocationPhrase(rawPhrase) {
+  if (!rawPhrase) return null;
+  const trimmed = rawPhrase
+    .toLowerCase()
+    .replace(/^[^a-z0-9]+/, "")
+    .split(/[,.!?;:]/)[0]
+    .replace(/\s+(and|but|so|then|because|while|lets|let's|we|i)\b.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!trimmed || trimmed.length < 2) return null;
+  return normalizeLocation(trimmed.replace(/^(the|a|an)\s+/, ""));
+}
+
+function extractMovementLocation(text) {
+  const source = String(text || "").toLowerCase();
+  if (!source) return null;
+
+  const patterns = [
+    /\b(?:go|head|move|travel|trek|walk|run|climb|return|backtrack|reach|enter|descend|ascend)\b(?:\s+\w+){0,5}\s+(?:to|toward|towards|into|inside|onto|on|in)\s+(?:the\s+)?([a-z][a-z0-9'\-\s]{2,70})/,
+    /\b(?:up|down|back)\s+to\s+(?:the\s+)?([a-z][a-z0-9'\-\s]{2,70})/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    const cleaned = cleanLocationPhrase(match?.[1] || "");
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function extractContextLocation(text) {
+  const source = String(text || "").toLowerCase();
+  if (!source) return null;
+  const patterns = [
+    /\bwhile at\s+(?:the\s+)?([a-z][a-z0-9'\-\s]{2,70})/,
+    /\bat\s+(?:the\s+)?([a-z][a-z0-9'\-\s]{2,70})/,
+    /\bin\s+(?:the\s+)?([a-z][a-z0-9'\-\s]{2,70})/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    const cleaned = cleanLocationPhrase(match?.[1] || "");
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function inferLocationFromText(text) {
+  const normalized = String(text || "")
+    .toLowerCase()
+    .trim();
+  if (!normalized) return null;
+  const explicit = extractContextLocation(normalized) || extractMovementLocation(normalized);
+  if (explicit) return explicit;
+  if (/\bbeach|shore|shoreline|coast|seaside|sand\b/.test(normalized)) return "beach";
+  if (/\bvolcano|lava|ravine|crater|ash|magma\b/.test(normalized)) return "volcano";
+  if (/\bjungle\b/.test(normalized)) return "jungle";
+  if (/\bruin|ruins|temple\b/.test(normalized)) return "ruins";
+  if (/\bcave|tunnel\b/.test(normalized)) return "cave";
+  return null;
+}
+
+function actionIndicatesMovement(actionText) {
+  const normalized = String(actionText || "").toLowerCase();
+  if (!normalized) return false;
+  return /\b(go|head|move|travel|trek|walk|run|climb|return|back|toward|towards|to|into|up|down|leave|reach)\b/.test(
+    normalized
+  );
+}
+
+function inferNextLocation({ currentLocation, actionText, narrationText }) {
+  const fromActionMovement = extractMovementLocation(actionText);
+  const fromActionContext = extractContextLocation(actionText);
+  const fromNarration = inferLocationFromText(narrationText);
+  const movement = actionIndicatesMovement(actionText);
+
+  if (fromActionMovement) return fromActionMovement;
+  if (fromActionContext) return fromActionContext;
+  if (fromNarration && movement) return fromNarration;
+  return currentLocation;
+}
+
+function enforceLocationContinuity(response, expectedLocation) {
+  if (!response || typeof response !== "object") return;
+  const narration = typeof response.dm_narration === "string" ? response.dm_narration : "";
+  if (!narration.trim()) return;
+
+  const continuityLine = `Continuity: Current location is ${expectedLocation}.`;
+  if (!response.dm_narration.includes("Continuity:")) {
+    response.dm_narration = `${response.dm_narration}\n\n${continuityLine}`;
+  }
+}
+
 function clamp0to20(value, fallback = 20) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -32,6 +135,57 @@ function ensurePlayerVitals(gameState) {
   if (!gameState?.player || typeof gameState.player !== "object") return;
   gameState.player.hp = clamp0to20(gameState.player.hp, 20);
   gameState.player.energy = clamp0to20(gameState.player.energy, 20);
+}
+
+function getGameOverState(gameState) {
+  const playerHp = clamp0to20(gameState?.player?.hp, 20);
+  if (playerHp <= 0) {
+    return {
+      isOver: true,
+      reason: "player_dead",
+      message: "Your injuries are fatal. ...The story ends here.",
+    };
+  }
+
+  const companions = Array.isArray(gameState?.companionStatus) ? gameState.companionStatus : [];
+  if (companions.length > 0 && companions.every((companion) => clamp0to20(companion?.hp, 20) <= 0)) {
+    return {
+      isOver: true,
+      reason: "party_wiped",
+      message: "All companions have fallen. ...The party is wiped out. The story ends here.",
+    };
+  }
+
+  return { isOver: false, reason: null, message: "" };
+}
+
+function markGameOver(gameState, gameOverState) {
+  if (!gameState || typeof gameState !== "object") return;
+  const storyFlags = gameState.storyFlags && typeof gameState.storyFlags === "object" ? gameState.storyFlags : {};
+  gameState.storyFlags = {
+    ...storyFlags,
+    gameOver: true,
+    gameOverReason: gameOverState.reason,
+    gameOverAt: storyFlags.gameOverAt || new Date().toISOString(),
+  };
+}
+
+function buildGameOverResponse(gameOverState) {
+  return {
+    dm_narration: gameOverState.message,
+    companions_pre: [],
+    companions_post: [],
+    dice_roll: null,
+    trust_changes: [],
+    health_changes: [],
+    companion_energy_changes: [],
+    item_changes: [],
+    energy_change: {
+      delta: 0,
+      effort: "low",
+      reason: "Game over state: no further actions can be taken.",
+    },
+  };
 }
 
 function applyTrustChangesFromModel(gameState, trustChanges) {
@@ -315,6 +469,20 @@ function createGameRouter({ games, turnHistoryByGame }) {
       }
       ensurePlayerVitals(gameState);
       ensureCompanionVitals(gameState);
+      const preTurnGameOver = getGameOverState(gameState);
+      if (preTurnGameOver.isOver) {
+        markGameOver(gameState, preTurnGameOver);
+        const response = buildGameOverResponse(preTurnGameOver);
+        return res.status(200).json({
+          response,
+          updatedState: gameState,
+          meta: {
+            source: "system_game_over_locked",
+            gameOver: true,
+            gameOverReason: preTurnGameOver.reason,
+          },
+        });
+      }
 
       if (typeof action !== "string" || !action.trim()) {
         return res.status(400).json(badRequest("action is required and must be a non-empty string"));
@@ -327,6 +495,14 @@ function createGameRouter({ games, turnHistoryByGame }) {
         gameState,
         action: action.trim(),
       });
+      const currentLocation = normalizeLocation(gameState.location);
+      const nextLocation = inferNextLocation({
+        currentLocation,
+        actionText: action.trim(),
+        narrationText: response?.dm_narration || "",
+      });
+      gameState.location = nextLocation;
+      enforceLocationContinuity(response, nextLocation);
       const energyChange = applyEnergyChangesFromModel(gameState, {
         ...(response?.energy_change || {}),
         dice_roll: response?.dice_roll,
@@ -343,6 +519,11 @@ function createGameRouter({ games, turnHistoryByGame }) {
       response.item_changes = itemChanges;
       const trustChanges = applyTrustChangesFromModel(gameState, response?.trust_changes || []);
       response.trust_changes = trustChanges;
+      const postTurnGameOver = getGameOverState(gameState);
+      if (postTurnGameOver.isOver) {
+        markGameOver(gameState, postTurnGameOver);
+        response.dm_narration = `${response.dm_narration}\n\n${postTurnGameOver.message}`;
+      }
 
       const history = turnHistoryByGame.get(gameId) ?? [];
       history.push({
@@ -357,6 +538,9 @@ function createGameRouter({ games, turnHistoryByGame }) {
           companionEnergyChanges,
           itemChanges,
           trustChanges,
+          location: gameState.location,
+          gameOver: postTurnGameOver.isOver,
+          gameOverReason: postTurnGameOver.reason,
         },
         timestamp: new Date().toISOString(),
       });
@@ -365,7 +549,7 @@ function createGameRouter({ games, turnHistoryByGame }) {
       console.log(
         `[game:turn] gameId=${gameId} action="${action.trim()}" source=${source} energyChange=${JSON.stringify(
           energyChange
-        )} healthChanges=${JSON.stringify(healthChanges)} companionEnergyChanges=${JSON.stringify(
+        )} location=${gameState.location} healthChanges=${JSON.stringify(healthChanges)} companionEnergyChanges=${JSON.stringify(
           companionEnergyChanges
         )} itemChanges=${JSON.stringify(itemChanges)} trustChanges=${JSON.stringify(trustChanges)}`
       );
@@ -379,6 +563,9 @@ function createGameRouter({ games, turnHistoryByGame }) {
           companionEnergyChanges,
           itemChanges,
           trustChanges,
+          location: gameState.location,
+          gameOver: postTurnGameOver.isOver,
+          gameOverReason: postTurnGameOver.reason,
         },
       });
     } catch (error) {
